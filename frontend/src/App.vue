@@ -2,6 +2,8 @@
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import MarkdownIt from "markdown-it";
 import { api, NoteMeta } from "./api";
+import SearchView from "./SearchView.vue";
+import SourcesView from "./SourcesView.vue";
 
 const md = new MarkdownIt({ html: false, linkify: true });
 
@@ -28,7 +30,9 @@ md.renderer.rules.wikilink = (tokens, idx) => {
   return `<a href="#" class="wikilink" data-target="${md.utils.escapeHtml(target)}">${md.utils.escapeHtml(label)}</a>`;
 };
 
-const workspacePath = ref("");
+const mode = ref<"notes" | "search" | "sources">("notes");
+const workspacePath = ref(""); // 입력창 초안
+const activeWorkspace = ref(""); // 실제로 열린 워크스페이스 (표시/키잉 기준)
 const workspaceOpen = ref(false);
 const notes = ref<NoteMeta[]>([]);
 const allNames = ref<NoteMeta[]>([]);
@@ -74,8 +78,9 @@ async function openPath(path: string) {
       return;
     }
     try {
-      await api.openWorkspace(path);
-      workspacePath.value = path;
+      const opened = await api.openWorkspace(path);
+      activeWorkspace.value = opened.path;
+      workspacePath.value = opened.path;
       workspaceOpen.value = true;
       current.value = null;
       text.value = "";
@@ -104,8 +109,9 @@ async function createPath(path: string) {
       return;
     }
     try {
-      await api.createWorkspace(path);
-      workspacePath.value = path;
+      const created = await api.createWorkspace(path);
+      activeWorkspace.value = created.path;
+      workspacePath.value = created.path;
       workspaceOpen.value = true;
       current.value = null;
       text.value = "";
@@ -184,6 +190,28 @@ async function createNote() {
   }
 }
 
+async function setMode(m: "notes" | "search" | "sources") {
+  if (m === mode.value || busy.value) return;
+  busy.value = true; // flush 동안 다른 전환/편집이 섞이지 않게 잠근다.
+  try {
+    const flushed = await flushSave();
+    if (!flushed) {
+      status.value = "저장 실패로 모드를 바꾸지 않았습니다. 재시도해 주세요.";
+      return;
+    }
+    mode.value = m;
+    status.value = "";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function openNoteFromSearch(path: string) {
+  const relative = path.replace(/\.md$/, "");
+  mode.value = "notes";
+  await selectNote({ path: path, name: relative });
+}
+
 const AUTO_SAVE_MS = 800;
 
 function scheduleSave() {
@@ -243,14 +271,16 @@ function retrySave() {
 }
 
 async function refreshBacklinks(path: string) {
+  // 같은 파일명이 다른 워크스페이스에 있어도 섞이지 않도록 호출 시점의 워크스페이스를 캡처한다.
+  const wsSnapshot = activeWorkspace.value;
   try {
     const r = await api.backlinks(path);
     // 이전 노트/워크스페이스의 늦은 응답이 현재 화면을 덮지 않게 한다.
-    if (current.value && current.value.path === path) {
+    if (current.value && current.value.path === path && activeWorkspace.value === wsSnapshot) {
       backlinks.value = r.backlinks;
     }
   } catch {
-    if (current.value && current.value.path === path) backlinks.value = [];
+    if (current.value && current.value.path === path && activeWorkspace.value === wsSnapshot) backlinks.value = [];
   }
 }
 
@@ -375,6 +405,7 @@ onMounted(async () => {
   const w = await api.workspace();
   if (w.path) {
     workspaceOpen.value = true;
+    activeWorkspace.value = w.path;
     workspacePath.value = w.path;
     await refreshNotes();
   }
@@ -388,16 +419,21 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <header>
-      <h1>Knowledge Palette — Notes</h1>
+      <h1>Knowledge Palette — {{ mode === "notes" ? "Notes" : mode === "search" ? "Search" : "Sources" }}</h1>
       <input v-model="workspacePath" :disabled="busy" placeholder="/absolute/path/to/workspace" />
       <button :disabled="busy" @click="openPath(workspacePath)">열기</button>
       <button :disabled="busy" @click="createPath(workspacePath)">새 Workspace</button>
-      <span v-if="workspaceOpen" class="ok">● {{ workspacePath }}</span>
+      <span v-if="workspaceOpen" class="ok">● {{ activeWorkspace }}</span>
       <span v-if="busy">처리 중…</span>
+      <nav v-if="workspaceOpen" class="modes">
+        <button :class="{ active: mode === 'notes' }" @click="setMode('notes')">Notes</button>
+        <button :class="{ active: mode === 'search' }" @click="setMode('search')">Search</button>
+        <button :class="{ active: mode === 'sources' }" @click="setMode('sources')">Sources</button>
+      </nav>
     </header>
     <p v-if="status" class="status">{{ status }}</p>
 
-    <main v-if="workspaceOpen">
+    <main v-if="workspaceOpen && mode === 'notes'">
       <aside>
         <input v-model="searchQ" placeholder="검색 (제목/파일/본문)" @input="onSearch" />
         <div v-if="searchResults.length" class="search-results">
@@ -450,6 +486,8 @@ onBeforeUnmount(() => {
       </section>
       <section v-else class="empty">노트를 선택하세요.</section>
     </main>
+    <SearchView :key="activeWorkspace" v-else-if="workspaceOpen && mode === 'search'" @open-note="openNoteFromSearch" />
+    <SourcesView :key="activeWorkspace" v-else-if="workspaceOpen && mode === 'sources'" />
   </div>
 </template>
 
@@ -479,4 +517,6 @@ a.wikilink { color: #2563eb; cursor: pointer; }
 .link { cursor: pointer; color: #2563eb; }
 .status { margin: 4px 12px; color: #b91c1c; }
 .empty { flex: 1; display: grid; place-items: center; color: #888; }
+.modes button { margin-left: 4px; }
+.modes button.active { font-weight: bold; text-decoration: underline; }
 </style>

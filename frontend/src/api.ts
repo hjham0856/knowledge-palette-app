@@ -3,6 +3,26 @@ export interface NoteMeta {
   name: string;
 }
 
+export interface SearchHit {
+  kind: string;
+  path: string;
+  content: string;
+  pages: string;
+  score: number;
+  lex_score: number;
+  vector_score: number;
+  via: string[];
+  rank: number;
+  status: string;
+}
+
+export interface SourceStatus {
+  path: string;
+  indexed_path: string;
+  status: string;
+  error: string | null;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -52,4 +72,16 @@ export const api = {
     req<{ status: "ok" | "missing" | "ambiguous"; matches: string[] }>(
       `/api/links/resolve?target=${encodeURIComponent(target)}`
     ),
+  searchNotes: (q: string) =>
+    req<{ results: SearchHit[] }>(`/api/search/notes?q=${encodeURIComponent(q)}`),
+  searchSources: (q: string) =>
+    req<{ results: SearchHit[] }>(`/api/search/sources?q=${encodeURIComponent(q)}`),
+  listSources: () => req<{ sources: SourceStatus[]; db_available: boolean }>("/api/sources"),
+  rescanSources: () => req<any>("/api/sources/rescan", { method: "POST" }),
+  reindexSources: (full: boolean) =>
+    req<any>("/api/sources/reindex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ full }),
+    }),
 };
