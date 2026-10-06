@@ -23,6 +23,39 @@ export interface SourceStatus {
   error: string | null;
 }
 
+export interface ChatStatus {
+  configured: boolean;
+  model: string | null;
+  knowledge_model: string | null;
+  base_host: string | null;
+}
+
+export interface Conversation {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ContextItem {
+  label: string;
+  kind: "note" | "source";
+  path: string;
+  pages: string;
+  snippet: string;
+  status: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  status: string;
+  citations: string[] | null;
+  context: ContextItem[] | null;
+  created_at: string;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -84,4 +117,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ full }),
     }),
+  chatStatus: () => req<ChatStatus>("/api/chat/status"),
+  listConversations: () => req<{ conversations: Conversation[] }>("/api/conversations"),
+  createConversation: (title: string) =>
+    req<Conversation>("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+  getConversation: (id: number) =>
+    req<{ id: number; title: string; messages: ChatMessage[] }>(`/api/conversations/${id}`),
 };

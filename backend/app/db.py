@@ -39,6 +39,25 @@ CREATE TABLE IF NOT EXISTS chunks (
   FOREIGN KEY (workspace, doc_path) REFERENCES documents(workspace, path) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS chunks_workspace_doc ON chunks(workspace, doc_path);
+CREATE TABLE IF NOT EXISTS conversations (
+  id BIGSERIAL PRIMARY KEY,
+  workspace TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS conversations_workspace ON conversations(workspace);
+CREATE TABLE IF NOT EXISTS messages (
+  id BIGSERIAL PRIMARY KEY,
+  conversation_id BIGINT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'completed',
+  citations JSONB,
+  context JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id);
 """
 
 

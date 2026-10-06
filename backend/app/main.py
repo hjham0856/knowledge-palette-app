@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import db, indexer, retrieval
+from . import chat, db, indexer, llm, retrieval
 from .workspace import Workspace
 
 app = FastAPI(title="Knowledge Palette")
@@ -223,7 +226,79 @@ def search_notes(q: str = Query(...), k: int = Query(10)):
         raise HTTPException(status_code=503, detail=f"검색 불가: {e}")
 
 
-@app.get("/api/search/sources")
+class ConversationCreate(BaseModel):
+    title: str = ""
+
+
+class ChatMessageIn(BaseModel):
+    content: str
+    include_sources: bool = False
+
+
+@app.get("/api/chat/status")
+def chat_status():
+    # 설정 여부와 모델/호스트만 노출하고 API 키는 절대 노출하지 않는다.
+    return llm.status()
+
+
+@app.get("/api/conversations")
+def conversations():
+    ws = current()
+    try:
+        return {"conversations": chat.list_conversations(str(ws.root))}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+
+
+@app.post("/api/conversations")
+def conversation_create(body: ConversationCreate):
+    ws = current()
+    try:
+        return chat.create_conversation(str(ws.root), body.title)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+
+
+@app.get("/api/conversations/{conv_id}")
+def conversation_get(conv_id: int):
+    ws = current()
+    try:
+        conv = chat.get_conversation(str(ws.root), conv_id)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+    if conv is None:
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
+    return conv
+
+
+def _sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@app.post("/api/conversations/{conv_id}/messages")
+async def conversation_message(conv_id: int, body: ChatMessageIn, request: Request):
+    ws = current()
+    try:
+        conv = chat.get_conversation(str(ws.root), conv_id)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+    if conv is None:
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="메시지가 비어 있습니다")
+    if len(content) > 8000:
+        raise HTTPException(status_code=400, detail="메시지가 너무 깁니다 (8000자 제한)")
+
+    async def stream():
+        try:
+            async for event, payload in chat.generate(conv_id, ws, content, body.include_sources):
+                yield _sse(event, payload)
+        except asyncio.CancelledError:
+            # 클라이언트 중단으로 generate가 부분 텍스트를 저장한 뒤 올라온 취소다.
+            return
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 def search_sources(q: str = Query(...), k: int = Query(10)):
     ws = current()
     if not db.available():

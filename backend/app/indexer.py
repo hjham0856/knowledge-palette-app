@@ -168,10 +168,11 @@ def reindex(ws: Workspace, full: bool = False) -> dict:
                 with conn.transaction():
                     conn.execute("DELETE FROM chunks WHERE workspace=%s", (ws_key,))
                     conn.execute("DELETE FROM documents WHERE workspace=%s", (ws_key,))
-                    conn.execute("DELETE FROM workspaces WHERE path=%s", (ws_key,))
+                    # 운영 식별자인 workspaces 행은 지우지 않는다. Conversation/History 데이터가
+                    # 이 워크스페이스를 참조할 수 있으므로 model/dim만 원자적으로 교체한다.
                     conn.execute(
-                        "INSERT INTO workspaces(path, embedding_model, dim) VALUES (%s,%s,%s)",
-                        (ws_key, db.EMBEDDING_MODEL, db.EMBEDDING_DIM),
+                        "UPDATE workspaces SET embedding_model=%s, dim=%s, updated_at=now() WHERE path=%s",
+                        (db.EMBEDDING_MODEL, db.EMBEDDING_DIM, ws_key),
                     )
                     for path, rel, kind in docs:
                         db_rel = f"notes/{rel}" if kind == "note" else f"sources/{rel}"
