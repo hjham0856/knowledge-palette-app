@@ -542,6 +542,70 @@ Phase 1 (Local Wiki)에서 문서에 위임된 세부 정책을 다음과 같이
 
 - Backend는 기본적으로 `127.0.0.1`에서만 서빙한다(로컬 전용).
 - 외부 편집 감지와 동시 수정 충돌 처리는 문서대로 Phase 1 범위에서 제외한다.
-- 아직 미구현: AI/Chat, PDF, PostgreSQL/pgvector, History/Undo, Graph.
+- 아직 미구현: AI/Chat, History/Undo, Graph.
+
+---
+
+## Phase 2 결정 사항
+
+### 임베딩 모델
+
+- 기본 모델은 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`(384차원)다.
+  문서는 FastEmbed `multilingual-e5-small`을 우선 검토하라고 했고 실제로 확인했다.
+  현재 FastEmbed(0.8.1) 지원 목록에는 `multilingual-e5-small`이 없고 `multilingual-e5-large`(1024차원, 약 2.2GB 다운로드)만 있다.
+  "작은 다국어 모델"이라는 요구와 대조되어 가용 목록 중 가벼운 실제 다국어 모델(384차원, 약 0.22GB)을 택했다.
+  E5 계열이 필요하면 `KP_EMBEDDING_MODEL`로 교체하고 `documents` 임베딩을 재구축한다(차원이 달라지면 `indexer`의 `VECTOR(N)` 정의도 맞춰야 한다).
+- 이 모델은 E5처럼 `"query: "`/`"passage: "` 접두사를 요구하지 않는다. FastEmbed의 `query_embed`/`passage_embed`를 통해 호출하며,
+  E5로 교체할 경우 FastEmbed가 해당 접두사 처리를 해주는 버전의 API를 사용한다.
+- 다이어그램의 `VECTOR(N)`은 현재 `VECTOR(384)`로 고정되어 있다. 즉, 기본적으로 **384차원 출력 모델만** 지원한다. 다른 차원 모델을 쓰려면 스키마를 함께 바꾼 뒤 전체 재구축해야 한다.
+- 첫 사용 시 HuggingFace 캐시로 지연 다운로드하고, CPU 추론을 쓴다. 결정론적 해시 벡터를 의미 검색으로 위장하는 일은 하지 않는다.
+  모델/DB를 사용할 수 없을 때는 가짜 점수를 내지 않고 503 수준의 명확한 오류를 반환한다.
+
+### PDF 파서
+
+- `DocumentParser` 인터페이스를 두고 실용적으로 PyMuPDF(`fitz`/`pymupdf`)를 선택했다. PyMuPDF는 의존성이 가벼운 단일 wheel이고
+  페이지 단위 텍스트와 메타데이터를 직접 얻을 수 있어 시트북 크기의 MVP에 적합하다. pypdf는 순수 Python이라 이식성은 좋지만
+  같은 입력에서 텍스트 품질이 낮은 경우가 많아 PDF 품질 우선으로 제외했다. 스캔(이미지) PDF는 텍스트를 추출할 수 없으면
+  성공처럼 숨기지 않고 "no extractable text" 오류로 보고한다.
+
+### 저장소/인덱스
+
+- PostgreSQL + pgvector는 `docker/docker-compose.yml`로 띄우고 127.0.0.1:54329에만 바인딩한다. `kp_pgdata` 볼륨이 데이터를 유지하고
+  healthcheck로 준비 상태를 확인한다. 별도 테스트 전용 컨테이너/아키텍처를 두지 않는다.
+- 모든 행은 `workspace`(루트 절대 경로)로 키를 나눠 워크스페이스가 섞이지 않게 한다. `workspaces` 테이블이 모델 이름과 차원을 기록해
+  모델이 바뀐 인덱스는 조용히 섞지 않고 전체 재구축을 요구한다.
+- 문서 단위 업데이트는 문서마다 세이브포인트로 감싸고 호출자가 커밋한다(실패 시 해당 문서만 롤백되어 이전 청크가 유지된다).
+  `documents`가 `chunks`의 FK를 참조해 문서 삭제 시 청크가 함께 정리된다.
+- Note 저장은 Markdown 원본을 먼저 쓰고, 인덱스에는 `stale`만 표시한다. DB/임베딩이 실패해도 원본은 보존되고 다음 스캔에서 갱신된다.
+  검색 결과에는 해당 문서의 `status`가 함께 내려가며 UI는 "재인덱싱 필요"로 표시한다. Phase 2에서는 수동 재인덱싱 정책을 둔다.
+- Sources 탭의 상태는 DB 기록의 fingerprint와 디스크의 sha256을 비교해 `indexed/stale/error/not-indexed`를 판정한다.
+- 스캔은 파일 fingerprint(sha256)가 같은 문서는 건너뛰고, 디스크에서 사라진 문서는 `documents`/`chunks`에서 삭제해 정합성을 맞춘다.
+- 같은 모델의 "전체 재구축"은 기존 청크를 미리 지우지 않고 문서별로 재임베딩·원자 교체한다. 모델이 달라진 상태에서의 "전체 재구축"은
+  chunks/documents/workspaces 행을 하나의 트랜잭션으로 교체하며, 어떤 문서라도 실패하면 채택하지 않고 기존 인덱스를 그대로 둔다.
+  일반 스캔/검색은 저장된 모델·차원과 현재 설정이 다르면 조용히 섞는 대신 오류를 반환한다.
+- 청킹은 문단(빈 줄) 경계를 기본으로 하고 같은 문서 안에서 약간의 오버랩을 둔다. PDF는 1-based 페이지 번호를 보존한다.
+
+### 검색
+
+- `notes`는 Knowledge Retrieval, `sources`는 Evidence Retrieval로 분리한다. `/api/search/notes`와 `/api/search/sources`가 따로 후보 풀을 만든다.
+  기존 `/api/search`(Phase 1 단순 검색)는 그대로 유지한다.
+- lexical은 단순 용어/경로/파일명 매칭(한국어/영어 모두 부분 일치), vector는 pgvector cosine(`<->` 계열 `<=>`) 후보를 모은다.
+  두 풀을 chunk id로 병합·중복 제거하고 `0.5*lex_norm + 0.5*vector`로 순위를 합친다. 각 결과에는 `via`(lexical/vector),
+  점수 구성, `rank`를 포함해 근거를 볼 수 있다.
+- MMR은 lambda=0.7(문서화된 기본값)로 `lambda*score - (1-lambda)*cos(선택된 청크와의 임베딩 유사도 최대)`를 적용한다.
+  ANN 인덱스, 리랭커, 쿼리 리라이트는 MVP 범위 밖으로 둔다.
+
+### UI
+
+- 상단 네비게이션으로 Notes/Search/Sources를 전환한다. 전환 전 pending Note 저장을 flush하고, 실패 시 현재 화면을 유지한다.
+- Search는 Note/Source 결과를 별도 섹션으로 보여주고, Note 결과 경로 클릭 시 해당 Note로 이동한다. Sources는 발견된 파일과 상태,
+  오류, 스캔/재구축 버튼을 제공한다. Notes가 계속 1급 캔버스다.
+
+### 검증
+
+- `backend/tests/test_phase2.py`는 PostgreSQL 컨테이너가 떠 있는 경우에만 실행되는 해피 패스 1개다
+  (PDF 등록 → 파싱 → 임베딩 → pgvector → hybrid+MMR → 원본 보존/파생 파일 확인). 컨테이너가 없으면 skip한다.
+  Phase 1의 기존 3개 테스트는 DB 없이 그대로 동작한다.
+- 프론트엔드는 `npm run typecheck && npm run build`로 검증한다.
 
 ---

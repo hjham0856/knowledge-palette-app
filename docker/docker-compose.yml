@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: kp-postgres
+    environment:
+      POSTGRES_USER: palette
+      POSTGRES_PASSWORD: palette
+      POSTGRES_DB: knowledge_palette
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - kp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U palette -d knowledge_palette"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  kp_pgdata:

@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from . import db, indexer, retrieval
 from .workspace import Workspace
 
 app = FastAPI(title="Knowledge Palette")
@@ -128,6 +129,17 @@ def write_note(body: NoteWrite):
     if not p.is_file():
         raise HTTPException(status_code=404, detail="note not found")
     p.write_text(body.content, encoding="utf-8")
+    # 노트 원본이 Markdown이므로 DB 인덱스보다 항상 우선이다. DB가 꺼져 있어도 노트는 살리고
+    # 인덱스는 stale 표시만 남긴다.
+    try:
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE documents SET status='stale' WHERE workspace=%s AND path=%s",
+                (str(ws.root), f"notes/{body.path}"),
+            )
+            conn.commit()
+    except Exception:
+        pass
     return {"path": body.path}
 
 
@@ -164,3 +176,61 @@ def note_names():
             {"name": p.stem, "path": str(p.relative_to(ws.root / "notes"))} for p in ws.note_files()
         ]
     }
+
+
+class SourceAction(BaseModel):
+    full: bool = False
+
+
+@app.get("/api/sources")
+def list_sources():
+    ws = current()
+    return {"sources": indexer.source_statuses(ws), "db_available": db.available()}
+
+
+@app.post("/api/sources/rescan")
+def rescan_sources():
+    ws = current()
+    try:
+        return indexer.reindex(ws, full=False)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"인덱스 불가: {e}")
+
+
+@app.post("/api/sources/reindex")
+def reindex_sources(body: SourceAction | None = None):
+    ws = current()
+    try:
+        return indexer.reindex(ws, full=bool(body and body.full))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"인덱스 불가: {e}")
+
+
+@app.get("/api/search/notes")
+def search_notes(q: str = Query(...), k: int = Query(10)):
+    ws = current()
+    if not db.available():
+        raise HTTPException(status_code=503, detail="PostgreSQL/pgvector가 비활성입니다. docker compose를 올려주세요.")
+    try:
+        return {"results": retrieval.search(str(ws.root), "note", q, k)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"검색 불가: {e}")
+
+
+@app.get("/api/search/sources")
+def search_sources(q: str = Query(...), k: int = Query(10)):
+    ws = current()
+    if not db.available():
+        raise HTTPException(status_code=503, detail="PostgreSQL/pgvector가 비활성입니다. docker compose를 올려주세요.")
+    try:
+        return {"results": retrieval.search(str(ws.root), "source", q, k)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"검색 불가: {e}")
