@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import MarkdownIt from "markdown-it";
 import { api, ChatMessage, ChatStatus, Conversation, ContextItem } from "./api";
 
 const props = defineProps<{ busy: boolean; splitOn: boolean }>();
+
+const wideScreen = window.matchMedia("(min-width: 769px)").matches;
 
 const emit = defineEmits<{
   (e: "open-note", path: string): void;
@@ -25,6 +27,12 @@ const streamSourceState = ref("");
 const streamError = ref("");
 const listError = ref("");
 const sourceModal = ref<ContextItem | null>(null);
+const sourceDialog = ref<HTMLDialogElement | null>(null);
+watch(sourceModal, async (item) => {
+  if (!item) return;
+  await nextTick();
+  sourceDialog.value?.showModal();
+});
 let controller: AbortController | null = null;
 let activeSend: Promise<void> | null = null;
 // 취소 직후 서버의 저장이 끝나기 전에도 해당 대화의 부분 응답을 다시 보여준다.
@@ -267,6 +275,15 @@ function onMessageClick(e: MouseEvent, m: ChatMessage) {
   }
 }
 
+function onSourceDialogClick(event: MouseEvent) {
+  const dialog = sourceDialog.value;
+  if (!dialog || event.target !== dialog) return;
+  const bounds = dialog.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+    sourceModal.value = null;
+  }
+}
+
 function onStreamClick(e: MouseEvent) {
   const el = (e.target as HTMLElement).closest("a.cite") as HTMLElement | null;
   if (!el) return;
@@ -292,25 +309,26 @@ defineExpose({ cancelActiveStream });
 </script>
 
 <template>
-  <div class="chat-view">
-    <nav v-if="status?.configured" class="convs">
+  <div class="chat-view card">
+    <details v-if="status?.configured" class="convs" :open="wideScreen">
+      <summary>대화 목록</summary>
       <button :disabled="loading || busy" @click="newConversation">+ 새 대화</button>
       <ul>
-        <li v-for="c in conversations" :key="c.id" :class="{ active: c.id === currentId }" @click="selectConversation(c.id)">
-          {{ c.title || "새 대화" }}
+        <li v-for="c in conversations" :key="c.id">
+          <button class="list-button" :class="{ active: c.id === currentId }" :aria-pressed="c.id === currentId" :disabled="loading || busy" :title="c.title || '새 대화'" @click="selectConversation(c.id)">{{ c.title || "새 대화" }}</button>
         </li>
       </ul>
       <p v-if="listError" class="error">{{ listError }}</p>
-    </nav>
+    </details>
 
     <section class="main">
-      <div v-if="status?.configured" class="bar">
-        <b>Chat</b>
+      <div v-if="status?.configured" class="bar toolbar">
+        <h2>Chat</h2>
         <label class="toggle"><input type="checkbox" v-model="includeSources" /> Sources 근거 포함</label>
         <label class="toggle"><input type="checkbox" :disabled="busy" :checked="splitOn" @change="setSplit(($event.target as HTMLInputElement).checked)" /> 노트 함께 보기</label>
       </div>
 
-      <div v-if="status && !status.configured" class="not-configured">
+      <div v-if="status && !status.configured" class="not-configured banner banner--warning">
         <h3>LLM provider가 설정되지 않았습니다</h3>
         <p>실제 LLM 응답을 받으려면 저장소 루트의 <code>.env</code>에 아래를 지정하세요.</p>
         <pre>KP_LLM_BASE_URL=https://api.openai.com/v1   # 또는 로컬 호환 API 주소
@@ -324,19 +342,21 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
 
       <p v-if="!status && listError" class="error">{{ listError }}</p>
       <div v-if="status?.configured" class="messages">
+        <p v-if="!messages.length && !streaming" class="empty-state">질문을 입력해 대화를 시작하세요.</p>
         <p v-if="streamNotesState" class="state">Notes: {{ streamNotesState }} · Sources: {{ streamSourceState }}</p>
         <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
-          <div class="bubble">
-            <div v-if="m.role === 'assistant'" class="content" v-html="renderMessage(m)" @click="onMessageClick($event, m)"></div>
-            <div v-else class="content">{{ m.content }}</div>
+          <div class="turn-document">
+            <div class="turn-heading"><span class="eyebrow">{{ m.role === 'user' ? '나' : 'Assistant' }}</span><span class="status-chip" :data-state="m.status">{{ m.status === 'complete' ? '완료' : m.status === 'interrupted' ? '중단됨' : '오류' }}</span></div>
+            <div v-if="m.role === 'assistant'" class="content prose" v-html="renderMessage(m)" @click="onMessageClick($event, m)"></div>
+            <div v-else class="content prose">{{ m.content }}</div>
             <p v-if="m.status === 'interrupted'" class="warn">응답이 중단되었습니다 (부분 내용 보존).</p>
-            <p v-if="m.status === 'error'" class="warn">응답 생성에 실패했습니다. 잠시 후 다시 시도하세요.</p>
+            <p v-if="m.status === 'error'" class="error">응답 생성에 실패했습니다. 잠시 후 다시 시도하세요.</p>
           </div>
           <details v-if="m.role === 'assistant' && (m.context ?? []).length" class="refs">
             <summary>참고 자료 {{ (m.context ?? []).length }}건</summary>
             <ul>
               <li v-for="c in contextLabels(m)" :key="c.label">
-                <span class="label">[{{ c.label }}]</span>
+                <span class="label badge">[{{ c.label }}]</span>
                 {{ c.kind === "note" ? "Note" : "Source" }} · {{ c.path }}<span v-if="c.pages"> · p.{{ c.pages }}</span>
                 <span v-if="citedSet(m).has(c.label)" class="used">(인용됨)</span> · {{ c.status }}
               </li>
@@ -345,15 +365,15 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
         </div>
 
         <div v-if="streaming || streamText" class="msg assistant">
-          <div class="bubble">
-            <div class="content" v-html="renderMessage({ content: streamText, context: streamContexts } as ChatMessage)" @click="onStreamClick"></div>
-            <p v-if="streaming" class="hint">응답 생성 중…</p>
+          <div class="turn-document">
+            <div class="turn-heading"><span class="eyebrow">Assistant</span><span class="status-chip" data-state="loading" role="status">응답 생성 중…</span></div>
+            <div class="content prose" v-html="renderMessage({ content: streamText, context: streamContexts } as ChatMessage)" @click="onStreamClick"></div>
           </div>
           <details v-if="streamContexts.length" class="refs" open>
             <summary>참고 자료 {{ streamContexts.length }}건</summary>
             <ul>
               <li v-for="c in streamContexts" :key="c.label">
-                <span class="label">[{{ c.label }}]</span> {{ c.kind === "note" ? "Note" : "Source" }} · {{ c.path }}<span v-if="c.pages"> · p.{{ c.pages }}</span> · {{ c.status }}
+                <span class="label badge">[{{ c.label }}]</span> {{ c.kind === "note" ? "Note" : "Source" }} · {{ c.path }}<span v-if="c.pages"> · p.{{ c.pages }}</span> · {{ c.status }}
               </li>
             </ul>
             <p class="state">
@@ -361,55 +381,68 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
             </p>
           </details>
         </div>
-        <p v-if="streamError" class="error">{{ streamError }}</p>
+        <p v-if="streamError" class="error" role="alert">{{ streamError }}</p>
       </div>
 
       <div v-if="status?.configured" class="composer">
-        <textarea v-model="draft" placeholder="질문을 입력하세요" :disabled="streaming || loading || busy" @keydown.enter.meta.prevent="send" @keydown.enter.ctrl.prevent="send" />
+        <textarea aria-label="Chat 질문" :aria-invalid="!!streamError" v-model="draft" placeholder="질문을 입력하세요" :disabled="streaming || loading || busy" @keydown.enter.meta.prevent="send" @keydown.enter.ctrl.prevent="send" />
         <button v-if="streaming" @click="stop">중지</button>
-        <button v-else :disabled="loading || busy" @click="send">보내기</button>
+        <button v-else class="btn--primary" :disabled="loading || busy || !draft.trim()" @click="send">보내기</button>
       </div>
     </section>
 
-    <div v-if="sourceModal" class="modal-backdrop" @click.self="sourceModal = null">
-      <div class="modal">
-        <h3>Source 근거</h3>
-        <p><b>{{ sourceModal.path }}</b><span v-if="sourceModal.pages"> · p.{{ sourceModal.pages }}</span> · {{ sourceModal.status }}</p>
-        <pre>{{ sourceModal.snippet }}</pre>
-        <p class="hint">전체 내용은 Sources 탭의 원본 문서에서 확인할 수 있습니다.</p>
-        <button @click="sourceModal = null">닫기</button>
-      </div>
-    </div>
+    <dialog v-if="sourceModal" ref="sourceDialog" class="modal card" aria-label="Source 근거" @click="onSourceDialogClick" @cancel="sourceModal = null" @close="sourceModal = null">
+      <h3>Source 근거</h3>
+      <p><b>{{ sourceModal.path }}</b><span v-if="sourceModal.pages"> · p.{{ sourceModal.pages }}</span> · {{ sourceModal.status }}</p>
+      <pre>{{ sourceModal.snippet }}</pre>
+      <p class="hint">전체 내용은 Sources 탭의 원본 문서에서 확인할 수 있습니다.</p>
+      <button @click="sourceModal = null">닫기</button>
+    </dialog>
   </div>
 </template>
 
 <style scoped>
-.chat-view { display: flex; flex: 1; min-height: 0; }
-.convs { width: 200px; border-right: 1px solid #ddd; padding: 8px; overflow: auto; }
-.convs ul { list-style: none; padding: 0; margin: 8px 0; }
-.convs li { padding: 4px 6px; cursor: pointer; border-radius: 4px; }
-.convs li.active { background: #e0e7ff; }
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.bar { display: flex; gap: 12px; align-items: center; padding: 6px 12px; background: #f3f3f3; }
-.toggle { font-size: 13px; }
-.provider { padding: 4px 12px; color: #555; font-size: 13px; }
-.not-configured { margin: 16px; padding: 12px; border: 1px solid #f0c; border-radius: 6px; background: #fff7ed; }
-.not-configured pre { background: #f3f3f3; padding: 8px; overflow: auto; }
-.messages { flex: 1; overflow: auto; padding: 12px; }
-.msg { margin-bottom: 12px; }
-.msg.user .bubble { background: #e5edff; }
-.msg.assistant .bubble { background: #f6f6f6; }
-.bubble { padding: 8px 12px; border-radius: 8px; max-width: 80%; }
-.content :deep(.cite) { color: #2563eb; cursor: pointer; text-decoration: underline; }
-.refs { font-size: 12px; color: #555; margin-top: 4px; }
-.refs .label { color: #2563eb; font-weight: bold; }
-.refs .used { color: #047857; }
-.composer { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #ddd; }
-.composer textarea { flex: 1; min-height: 48px; }
-.error { color: #b91c1c; padding: 4px 12px; }
-.warn { color: #b45309; margin: 4px 0 0; font-size: 12px; }
-.hint { color: #888; font-size: 12px; }
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; }
-.modal { background: white; padding: 16px; max-width: 640px; max-height: 80%; overflow: auto; border-radius: 8px; }
-.modal pre { white-space: pre-wrap; background: #f6f6f6; padding: 8px; }
+.chat-view { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: clip; }
+.convs { width: 212px; flex-shrink: 0; border-right: var(--rule-hair); padding: var(--space-md); overflow: auto; }
+.convs:not([open]) { width: 112px; }
+.convs summary { font-weight: 600; margin-bottom: var(--space-sm); }
+.convs ul { list-style: none; padding: 0; margin: var(--space-sm) 0; }
+.convs .list-button { font-size: var(--text-xs); }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.bar { padding: var(--space-md) var(--space-lg); border-bottom: var(--rule-hair); }
+.bar h2 { margin: 0 auto 0 0; font-size: var(--text-lg); }
+.toggle { display: inline-flex; align-items: center; gap: var(--space-xs); font-size: var(--text-xs); cursor: pointer; white-space: nowrap; }
+.toggle:has(:disabled) { opacity: 0.55; cursor: not-allowed; }
+.provider { padding: var(--space-xs) var(--space-lg); color: var(--color-ink-2); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.not-configured { margin: var(--space-lg); overflow: auto; }
+.messages { flex: 1; min-height: 0; overflow: auto; padding: var(--space-lg) max(var(--space-lg), calc((100% - 840px) / 2)); }
+.msg { padding: var(--space-lg) 0; border-bottom: var(--rule-hair); }
+.msg:first-of-type { padding-top: var(--space-sm); }
+.turn-heading { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.turn-document { max-width: 100%; }
+.msg.user .content { font-size: var(--text-md); font-weight: 500; white-space: pre-wrap; }
+.content { color: var(--color-ink-1); }
+.refs { font-size: var(--text-xs); color: var(--color-ink-2); margin-top: var(--space-md); }
+.refs ul { padding-left: var(--space-md); }
+.refs li { overflow-wrap: anywhere; margin-bottom: var(--space-xs); }
+.refs .label { color: var(--color-accent); font-family: var(--font-mono); }
+.refs .used { color: var(--color-success-ink); }
+.composer { display: flex; align-items: flex-end; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); border-top: var(--rule-hair); background: var(--color-paper-0); }
+.composer textarea { flex: 1; min-height: 80px; max-height: 240px; resize: vertical; }
+.error { margin: var(--space-sm); }
+.warn { margin: var(--space-sm) 0 0; font-size: var(--text-xs); }
+.state { color: var(--color-ink-2); font-size: var(--text-xs); }
+.modal::backdrop { background: var(--color-overlay); }
+.modal { width: min(calc(100% - var(--space-xl)), 640px); padding: var(--space-lg); color: var(--color-ink-0); max-height: 85dvh; overflow: auto; }
+.modal pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 768px) {
+  .chat-view { flex-direction: column; }
+  .convs, .convs:not([open]) { width: 100%; max-height: 200px; border-right: 0; border-bottom: var(--rule-hair); padding: var(--space-xs) var(--space-md); }
+  .convs summary { margin: 0; }
+  .bar { padding: var(--space-sm) var(--space-md); }
+  .messages { padding: var(--space-md); }
+  .provider { padding-inline: var(--space-md); }
+  .composer { padding: var(--space-sm); gap: var(--space-xs); }
+  .composer textarea { padding: var(--space-sm); }
+}
 </style>

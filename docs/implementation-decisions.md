@@ -28,7 +28,12 @@
   - `KP_KNOWLEDGE_MODEL`: 비우면 Chat 모델을 함께 쓴다.
 
   이유: BYOK와 OpenAI 호환 API를 우선한다는 아키텍처 문서의 방향을 따랐다. 이 방식이면 Ollama, OpenAI, OpenRouter 같은 Provider를 코드 변경 없이 쓸 수 있다. 역할(Chat/Knowledge/Embedding)은 설정에서 나눈다.
-- **실제 연결 검증은 로컬 Ollama의 `qwen2.5:7b-instruct`로 한다.** 사용자가 로컬 Ollama를 선택했다. 이 모델은 수 GB 크기로 받을 수 있는 모델 가운데 한국어 응답과 JSON 지시 수행이 비교적 안정적이다. 다만 한국어 답변에 중국어가 섞이는 경우가 관찰되어, 시스템 프롬프트에서 응답 언어를 명시한다.
+- **실제 연결 검증은 로컬 Ollama의 `qwen3.5:4b-mlx`로 한다(사용자 지정).** 처음에는 한국어와 JSON 지시 수행을 기준으로 `qwen2.5:7b-instruct`를 골랐다. 이 모델로 Phase 3 첫 검증을 했지만, 응답에 중국어가 섞이고 사실 설명이 부정확했다. 이후 사용자가 실제로 쓰는 모델이 `qwen3.5:4b-mlx`라고 알려 와 그 모델로 바꿨다.
+- **LLM 호출은 `LLMClient` 인터페이스 뒤에 둔다(사용자 요청).** 구현체는 OpenAI 호환 클라이언트 하나다. `KP_LLM_PROVIDER`로 구현체를 고르고, 역할(chat/knowledge)별 클라이언트는 진입점 한 곳에서 얻는다. 이유는 다음과 같다.
+  - Provider를 바꾸거나 추가할 때 Chat과 Knowledge Update 코드를 고치지 않게 하기 위해서다.
+  - 아키텍처 문서가 "특정 서비스에 Knowledge Engine을 종속시키지 않는다"고 했다.
+
+  사용하지 않는 Provider 구현체는 미리 만들지 않는다.
 - 자동 테스트는 외부 HTTP 경계만 대체(mock)한다. 실제 Provider 검증과 mock 검증은 작업 내역에 구분해 적는다.
 
 ## Phase 3 — Chat
