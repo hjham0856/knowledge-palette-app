@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
@@ -438,3 +439,134 @@ def list_updates(ws: Workspace, conv_id: int) -> dict:
                 (row[0], str(row[1]), *row[2:]),
             )) | {"changes": [{"op": c[0], "path": c[1], "after_sha256": c[2]} for c in changes]})
     return {"updates": updates}
+
+
+SUMMARY_COLUMNS = "u.id,u.created_at,u.conversation_id,c.title,u.status,u.counts,u.error,u.undone_at"
+
+
+def _update_summary(row) -> dict:
+    return {
+        "id": row[0], "created_at": str(row[1]), "conversation_id": row[2],
+        "conversation_title": row[3], "status": row[4],
+        "counts": {op: row[5].get(op, 0) for op in ("CREATE", "UPDATE", "LINK", "NONE")},
+        "error": row[6], "undone_at": str(row[7]) if row[7] is not None else None,
+    }
+
+
+def history_updates(ws: Workspace) -> dict:
+    db.ensure_schema()
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT {SUMMARY_COLUMNS} FROM knowledge_updates u JOIN conversations c ON c.id=u.conversation_id "
+            "WHERE u.workspace=%s AND c.workspace=%s ORDER BY u.id DESC",
+            (str(ws.root), str(ws.root)),
+        ).fetchall()
+    return {"updates": [_update_summary(row) for row in rows]}
+
+
+def update_detail(ws: Workspace, update_id: int) -> dict:
+    db.ensure_schema()
+    with db.connect() as conn:
+        row = conn.execute(
+            f"SELECT {SUMMARY_COLUMNS},u.decisions FROM knowledge_updates u "
+            "JOIN conversations c ON c.id=u.conversation_id WHERE u.workspace=%s AND c.workspace=%s AND u.id=%s",
+            (str(ws.root), str(ws.root), update_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Knowledge Update를 찾을 수 없습니다")
+        changes = conn.execute(
+            "SELECT id,op,path,before,after FROM knowledge_changes WHERE workspace=%s AND update_id=%s ORDER BY id",
+            (str(ws.root), update_id),
+        ).fetchall()
+    return _update_summary(row) | {
+        "changes": [dict(zip(("id", "op", "path", "before", "after"), change)) for change in changes],
+        "decisions": [{"action": d["action"], "path": d.get("path"), "reason": d["reason"],
+                       "candidate": d["candidate"], "dropped_links": d.get("dropped_links", [])}
+                      for d in row[8]],
+    }
+
+
+def undo_update(ws: Workspace, update_id: int) -> dict:
+    db.ensure_schema()
+    written = []
+    restored, deleted = [], []
+    with db.connect() as conn:
+        # 같은 실행에 대한 Undo 요청이 겹쳐도 파일과 상태를 한 번만 되돌린다.
+        row = conn.execute(
+            "SELECT status FROM knowledge_updates WHERE workspace=%s AND id=%s FOR UPDATE",
+            (str(ws.root), update_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Knowledge Update를 찾을 수 없습니다")
+        if row[0] != "applied":
+            raise HTTPException(status_code=400, detail="applied 상태인 Knowledge Update만 Undo할 수 있습니다")
+        changes = conn.execute(
+            "SELECT op,path,before,after,after_sha256 FROM knowledge_changes "
+            "WHERE workspace=%s AND update_id=%s ORDER BY id DESC", (str(ws.root), update_id),
+        ).fetchall()
+        conflicts = []
+        for op, rel, before, after, fingerprint in changes:
+            try:
+                path = _note_path(ws, rel)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Undo 대상 Note 경로가 허용되지 않습니다")
+            if not path.is_file():
+                conflicts.append({"path": rel, "reason": "missing"})
+            elif db.sha256_of(path) != fingerprint:
+                conflicts.append({"path": rel, "reason": "modified"})
+        # 한 파일의 사용자 편집도 다른 파일의 부분 Undo를 허용하지 않는다.
+        if conflicts:
+            raise HTTPException(status_code=409, detail={
+                "message": "Note가 변경되었거나 없어 Undo할 수 없습니다", "conflicts": conflicts,
+            })
+        try:
+            for change in changes:
+                op, rel, before, after, fingerprint = change
+                path = _note_path(ws, rel)
+                written.append(change)
+                if op == "CREATE":
+                    path.unlink()
+                    deleted.append(rel)
+                else:
+                    path.write_bytes(before.encode("utf-8"))
+                    restored.append(rel)
+                conn.execute(
+                    "UPDATE documents SET status='stale',error=NULL WHERE workspace=%s AND path=%s",
+                    (str(ws.root), rel),
+                )
+            undone_at = conn.execute(
+                "UPDATE knowledge_updates SET status='undone',undone_at=now() "
+                "WHERE workspace=%s AND id=%s RETURNING undone_at", (str(ws.root), update_id),
+            ).fetchone()[0]
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            restore_failed = False
+            for op, rel, before, after, fingerprint in reversed(written):
+                try:
+                    _note_path(ws, rel).write_bytes(after.encode("utf-8"))
+                except Exception:
+                    restore_failed = True
+            message = ("Undo 파일 복구 실패: 파일 권한과 디스크 상태를 확인하세요." if restore_failed else
+                       "Undo 실패: 변경한 파일을 AI 반영 후 내용으로 복구했습니다. DB·파일 쓰기 상태를 확인하세요.")
+            raise HTTPException(status_code=500, detail=message)
+
+    reindex_error = None
+    try:
+        result = indexer.reindex(ws, full=False, kinds=("note",))
+        if result["errors"]:
+            reindex_error = "Note 재색인 실패: Markdown Undo는 완료되었습니다. 재색인을 다시 실행하세요."
+    except Exception:
+        reindex_error = "Note 재색인 실패: Markdown Undo는 완료되었습니다. 재색인을 다시 실행하세요."
+    if reindex_error:
+        try:
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE documents SET status='stale',error=NULL WHERE workspace=%s AND path=ANY(%s)",
+                    (str(ws.root), restored + deleted),
+                )
+                conn.commit()
+        except Exception:
+            reindex_error = "Note 재색인 및 stale 기록 실패: Markdown Undo는 완료되었습니다. DB 상태를 확인하세요."
+    return {"id": update_id, "status": "undone", "undone_at": str(undone_at),
+            "restored": restored, "deleted": deleted, "reindex_error": reindex_error}

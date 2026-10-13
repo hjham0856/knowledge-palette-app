@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS knowledge_updates (
   decisions JSONB NOT NULL DEFAULT '[]',
   error TEXT
 );
+ALTER TABLE knowledge_updates ADD COLUMN IF NOT EXISTS undone_at TIMESTAMPTZ;
+ALTER TABLE knowledge_updates DROP CONSTRAINT IF EXISTS knowledge_updates_status_check;
+ALTER TABLE knowledge_updates ADD CONSTRAINT knowledge_updates_status_check
+  CHECK (status IN ('running','applied','failed','undone'));
 CREATE UNIQUE INDEX IF NOT EXISTS knowledge_running ON knowledge_updates(conversation_id) WHERE status='running';
 CREATE TABLE IF NOT EXISTS knowledge_changes (
   id BIGSERIAL PRIMARY KEY,
