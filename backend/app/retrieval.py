@@ -38,7 +38,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def search(ws_root: str, kind: str, query: str, top_k: int = 10) -> list[dict]:
+def search(ws_root: str, kind: str, query: str, top_k: int = 10, exclude_path: str = "") -> list[dict]:
     qvec = embeddings.embed_query(query)
     vec_lit = "[" + ",".join(repr(float(x)) for x in qvec) + "]"
     try:
@@ -59,14 +59,14 @@ def search(ws_root: str, kind: str, query: str, top_k: int = 10) -> list[dict]:
         vec_rows = conn.execute(
             "SELECT c.id, c.doc_path, c.kind, c.content, c.pages, c.embedding <=> %s::vector AS dist, c.embedding::text, d.status "
             "FROM chunks c JOIN documents d ON d.workspace=c.workspace AND d.path=c.doc_path "
-            "WHERE c.workspace=%s AND c.kind=%s ORDER BY dist LIMIT %s",
-            (vec_lit, ws_root, kind, CANDIDATES),
+            "WHERE c.workspace=%s AND c.kind=%s AND c.doc_path<>%s ORDER BY dist LIMIT %s",
+            (vec_lit, ws_root, kind, exclude_path, CANDIDATES),
         ).fetchall()
         all_rows = conn.execute(
             "SELECT c.id, c.doc_path, c.kind, c.content, c.pages, c.embedding::text, d.status "
             "FROM chunks c JOIN documents d ON d.workspace=c.workspace AND d.path=c.doc_path "
-            "WHERE c.workspace=%s AND c.kind=%s",
-            (ws_root, kind),
+            "WHERE c.workspace=%s AND c.kind=%s AND c.doc_path<>%s",
+            (ws_root, kind, exclude_path),
         ).fetchall()
 
     lex_scored = []

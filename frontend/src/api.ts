@@ -23,6 +23,11 @@ export interface SourceStatus {
   error: string | null;
 }
 
+export interface RelatedNote extends SearchHit, NoteMeta {
+  outgoing: boolean;
+  backlink: boolean;
+}
+
 export interface ChatStatus {
   configured: boolean;
   model: string | null;
@@ -101,6 +106,8 @@ export const api = {
     ),
   backlinks: (path: string) =>
     req<{ backlinks: NoteMeta[] }>(`/api/notes/backlinks?path=${encodeURIComponent(path)}`),
+  relatedNotes: (path: string) =>
+    req<{ results: RelatedNote[]; index_incomplete: boolean }>(`/api/notes/related?path=${encodeURIComponent(path)}`),
   resolve: (target: string) =>
     req<{ status: "ok" | "missing" | "ambiguous"; matches: string[] }>(
       `/api/links/resolve?target=${encodeURIComponent(target)}`
