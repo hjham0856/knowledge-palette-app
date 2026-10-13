@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import SearchView from "./SearchView.vue";
 import SourcesView from "./SourcesView.vue";
 import ChatView from "./ChatView.vue";
 import NotesView from "./NotesView.vue";
 import GraphView from "./GraphView.vue";
 import BaseView from "./BaseView.vue";
+import HistoryView from "./HistoryView.vue";
 
 const modes = [
   { id: "chat", label: "Chat" },
   { id: "notes", label: "Notes" },
   { id: "search", label: "Search" },
   { id: "sources", label: "Sources" },
+  { id: "history", label: "History" },
   { id: "graph", label: "Graph" },
   { id: "base", label: "Base" },
 ] as const;
@@ -29,6 +31,45 @@ const openNoteRequest = ref<{ path: string; nonce: number } | null>(null);
 
 const notesView = ref<InstanceType<typeof NotesView> | null>(null);
 const chatView = ref<InstanceType<typeof ChatView> | null>(null);
+const historyView = ref<InstanceType<typeof HistoryView> | null>(null);
+const historyRequest = ref<{ id: number; nonce: number } | null>(null);
+const undoMessage = ref("");
+const undoFailed = ref(false);
+const undoConflicts = ref<{ path: string; reason: "modified" | "missing" }[]>([]);
+
+async function openHistory(id: number) {
+  await setMode("history");
+  if (mode.value === "history" && !locked.value) historyRequest.value = { id, nonce: Date.now() };
+}
+
+async function undoUpdate(id: number) {
+  if (locked.value || !window.confirm(`Knowledge Update #${id} 전체를 되돌릴까요? 새 Note는 삭제되고 보강·링크는 이전 내용으로 복원됩니다.`)) return;
+  busy.value = true;
+  undoMessage.value = "";
+  undoConflicts.value = [];
+  undoFailed.value = false;
+  try {
+    await notesView.value?.pauseForUndo();
+    const result = await api.undoUpdate(id);
+    undoMessage.value = `Knowledge Update #${id}를 되돌렸습니다.`;
+    if (result.reindex_error) undoMessage.value += ` 검색 재색인 실패: ${result.reindex_error}`;
+    const restored = result.restored.map(path => path.replace(/^notes\//, ""));
+    const deleted = result.deleted.map(path => path.replace(/^notes\//, ""));
+    if (await notesView.value?.knowledgeChanged([...restored, ...deleted], deleted, true) === false) {
+      undoMessage.value += " Note 화면 갱신 실패 — Notes에서 오류를 확인하세요.";
+    }
+    await Promise.all([historyView.value?.refresh(), chatView.value?.historyChanged()]);
+  } catch (e: any) {
+    undoFailed.value = true;
+    if (e instanceof ApiError && e.status === 409 && typeof e.detail !== "string") {
+      undoMessage.value = "이후 편집된 Note가 있어 되돌릴 수 없음";
+      undoConflicts.value = e.detail.conflicts;
+    } else undoMessage.value = `Undo 실패: ${e.message}`;
+  } finally {
+    notesView.value?.resumeAfterUndo();
+    busy.value = false;
+  }
+}
 
 async function openPath(path: string) {
   if (locked.value) return;
@@ -46,6 +87,9 @@ async function openPath(path: string) {
       workspacePath.value = opened.path;
       workspaceOpen.value = true;
       openNoteRequest.value = null;
+      historyRequest.value = null;
+      undoMessage.value = "";
+      undoConflicts.value = [];
       status.value = "";
     } catch (e: any) {
       status.value = `열기 실패: ${e.message}`;
@@ -71,6 +115,9 @@ async function createPath(path: string) {
       workspacePath.value = created.path;
       workspaceOpen.value = true;
       openNoteRequest.value = null;
+      historyRequest.value = null;
+      undoMessage.value = "";
+      undoConflicts.value = [];
       status.value = "";
     } catch (e: any) {
       status.value = `생성 실패: ${e.message}`;
@@ -168,18 +215,24 @@ onBeforeUnmount(() => {
       <p v-if="workspaceOpen" class="workspace-path muted" :title="activeWorkspace">현재 Workspace · {{ activeWorkspace }}</p>
     </header>
     <p v-if="status" class="error app-status" role="alert">{{ status }}</p>
+    <section v-if="undoMessage" class="undo-message banner" :class="{ 'banner--error': undoFailed }" :role="undoFailed ? 'alert' : 'status'">
+      <p>{{ undoMessage }}</p>
+      <ul v-if="undoConflicts.length"><li v-for="conflict in undoConflicts" :key="conflict.path">{{ conflict.path }} · {{ conflict.reason === 'missing' ? '파일 없음' : '이후 수정됨' }}</li></ul>
+      <button :disabled="locked" @click="undoMessage = ''; undoConflicts = []">닫기</button>
+    </section>
     <section v-if="!workspaceOpen" class="workspace-empty card empty-state">
       <h2>Workspace를 열어 시작하세요.</h2>
       <p>기존 폴더의 경로를 입력하거나 새 Workspace를 만드세요.</p>
     </section>
 
     <main v-if="workspaceOpen" :key="activeWorkspace" :class="{ split: mode === 'chat' && splitChat }">
-      <ChatView v-show="mode === 'chat'" ref="chatView" :busy="locked" :split-on="splitChat" @open-note="openNoteInNotes" @knowledge-changed="notesView?.knowledgeChanged($event)" @split-change="setSplit" />
+      <ChatView v-show="mode === 'chat'" ref="chatView" :busy="locked" :split-on="splitChat" @open-note="openNoteInNotes" @open-history="openHistory" @undo="undoUpdate" @knowledge-changed="notesView?.knowledgeChanged($event)" @split-change="setSplit" />
       <div v-show="mode === 'notes' || (mode === 'chat' && splitChat)" class="notes-main">
         <NotesView :open-request="openNoteRequest" :compact="mode === 'chat'" :navigation-busy="busy" @busy-change="noteBusy = $event" ref="notesView" />
       </div>
       <SearchView v-if="mode === 'search'" @open-note="openNoteInNotes" />
       <SourcesView v-if="mode === 'sources'" />
+      <HistoryView v-if="mode === 'history'" ref="historyView" :request="historyRequest" :busy="locked" @open-note="openNoteInNotes" @undo="undoUpdate" />
       <GraphView v-if="mode === 'graph'" :path="notesView?.current?.path ?? null" :busy="locked" @open-note="openGraphNote" @choose-note="setMode('notes')" />
       <BaseView v-if="mode === 'base'" :navigation-busy="locked" @open-note="openNoteInNotes" />
     </main>
@@ -198,6 +251,9 @@ onBeforeUnmount(() => {
 .workspace-bar input { flex: 1; min-width: 160px; font-family: var(--font-mono); font-size: var(--text-xs); }
 .workspace-path { max-width: 1000px; margin: var(--space-xs) auto 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-status { margin: 0; }
+.undo-message { flex-shrink: 0; max-height: 30dvh; overflow: auto; }
+.undo-message p { margin: 0 0 var(--space-xs); }
+.undo-message li { overflow-wrap: anywhere; }
 main { display: flex; flex: 1; min-height: 0; min-width: 0; gap: var(--space-md); }
 .notes-main { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .split > * { min-width: 0; flex: 1; width: 50%; }

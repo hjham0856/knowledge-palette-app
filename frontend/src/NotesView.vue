@@ -357,13 +357,39 @@ onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
 });
 
-async function knowledgeChanged(paths: string[]) {
+async function pauseForUndo() {
+  // Undo 도중 예약 저장이 복원된 파일을 다시 덮거나 삭제된 파일을 재생성하지 않게 한다.
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  while (activeSave) await activeSave;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+}
+
+function resumeAfterUndo() {
+  if (text.value !== savedText.value && saveState.value !== "error") scheduleSave();
+}
+
+async function knowledgeChanged(paths: string[], deleted: string[] = [], undo = false) {
   try {
     await refreshNotes();
     const target = current.value;
     if (!target || !paths.includes(target.path)) return;
     if (isDirty()) {
-      knowledgeWarning.value = "AI가 이 Note를 갱신함 — 저장 시 덮어씀";
+      knowledgeWarning.value = undo
+        ? "Undo로 이 Note가 바뀌었습니다. 미저장 초안은 유지했습니다. 다시 저장하면 복원된 내용을 덮어쓰거나 삭제된 Note를 다시 만듭니다."
+        : "AI가 이 Note를 갱신함 — 저장 시 덮어씀";
+      if (undo) {
+        saveState.value = "error";
+        saveError.value = "Undo 후 초안 보존 중 — 내용을 확인한 뒤 다시 저장하세요";
+      }
+      return;
+    }
+    if (deleted.includes(target.path)) {
+      current.value = null;
+      text.value = savedText.value = "";
+      backlinks.value = [];
+      searchResults.value = [];
+      completion.value = { open: false, items: [], start: 0 };
+      knowledgeWarning.value = "";
       return;
     }
     const snapshot = text.value;
@@ -377,12 +403,14 @@ async function knowledgeChanged(paths: string[]) {
     savedText.value = result.content;
     knowledgeWarning.value = "";
     await refreshBacklinks(target.path);
+    return true;
   } catch (e: any) {
-    status.value = `AI 갱신 Note를 불러오지 못했습니다: ${e.message}`;
+    status.value = `${undo ? "Undo" : "AI 갱신"} Note를 불러오지 못했습니다: ${e.message}`;
+    return false;
   }
 }
 
-defineExpose({ flushSave, isDirty, refreshNotes, knowledgeChanged, current, selectNote });
+defineExpose({ flushSave, isDirty, refreshNotes, knowledgeChanged, pauseForUndo, resumeAfterUndo, current, selectNote });
 </script>
 
 <template>
