@@ -228,7 +228,8 @@ async def generate(conv_id: int, ws: Workspace, query: str, include_sources: boo
         assembled = await run_in_threadpool(assemble_context, ws, query, include_sources)
         yield "context", assembled
         messages = await run_in_threadpool(build_messages, conv_id, assembled)
-        async with aclosing(llm.stream_chat(messages)) as stream:
+        client = llm.get_client("chat")
+        async with aclosing(client.stream_chat(messages)) as stream:
             async for text in stream:
                 partial += text
                 yield "delta", {"text": text}
@@ -241,9 +242,9 @@ async def generate(conv_id: int, ws: Workspace, query: str, include_sources: boo
     except llm.LLMStreamError as e:
         assistant_status = "error"
         detail = str(e)
-    except llm.LLMNotConfigured:
+    except llm.LLMNotConfigured as e:
         assistant_status = "error"
-        detail = "LLM provider 미설정: KP_LLM_BASE_URL / KP_CHAT_MODEL을 지정하세요."
+        detail = str(e)
     except Exception:
         assistant_status = "error"
         detail = "대화 준비 또는 저장에 실패했습니다. DB와 검색 설정을 확인하세요."

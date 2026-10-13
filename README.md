@@ -98,10 +98,14 @@ cd ../frontend && npm run typecheck && npm run build
 ## Phase 3 — Chat
 
 루트 `.env`에 `.env.example`의 `KP_LLM_BASE_URL`, `KP_CHAT_MODEL`을 지정한 뒤 backend를 다시 시작한다.
-Ollama는 `http://127.0.0.1:11434/v1`과 `qwen2.5:7b-instruct`를 사용하고 API 키는 비워 둔다.
+Ollama는 `http://127.0.0.1:11434/v1`과 `qwen3.5:4b-mlx`를 사용하고 API 키는 비워 둔다.
 OpenAI를 사용하려면 주소를 `https://api.openai.com/v1`, `KP_CHAT_MODEL`을 해당 계정에서 사용할 수 있는 모델,
 `KP_LLM_API_KEY`를 개인 API 키로 지정한다. 다른 OpenAI 호환 서비스도 제공받은 `/v1` 주소·모델·키로 설정한다.
 `KP_KNOWLEDGE_MODEL`은 비우면 Chat 모델을 사용한다. 키는 `.env`에만 두고 공유하지 않는다.
+
+`KP_LLM_PROVIDER`의 기본값이자 현재 지원 값은 `openai-compatible`이다. Chat은 `get_client("chat")`에서 받은 `LLMClient` 인터페이스로 호출하며, 실제 HTTP 통신은 `OpenAICompatibleClient`가 맡는다. 새 Provider를 추가하려면 `stream_chat(messages)`로 본문 스트림을 반환하고 기존 설정·중단·오류 예외 계약을 지키는 구현체를 만든 뒤, `get_client(role)`의 선택 분기에 연결한다. 역할은 `chat`/`knowledge`이며 비스트리밍 JSON 생성은 Phase 4에서 추가한다.
+
+`KP_LLM_REASONING_EFFORT=none`은 Ollama에서 thinking을 끄는 설정이다. 값이 있으면 요청에 `reasoning_effort`로 그대로 전달한다. 이 파라미터를 지원하지 않는 서비스에서는 값을 비워 보내지 않도록 한다. 스트림의 reasoning 필드는 답변 본문에 포함하지 않는다.
 
 1. Workspace를 연 뒤 Chat에서 새 대화를 만들거나 질문을 보낸다. 답변은 생성되는 대로 표시된다.
 2. 기존 Notes를 hybrid 검색(단어+의미)과 MMR(비슷한 근거의 반복 줄이기)로 찾는다. `Sources 근거 포함`을 켜면 자료도 검색한다.
