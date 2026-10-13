@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
     </section>
 
     <main v-if="workspaceOpen" :key="activeWorkspace" :class="{ split: mode === 'chat' && splitChat }">
-      <ChatView v-show="mode === 'chat'" ref="chatView" :busy="locked" :split-on="splitChat" @open-note="openNoteInNotes" @split-change="setSplit" />
+      <ChatView v-show="mode === 'chat'" ref="chatView" :busy="locked" :split-on="splitChat" @open-note="openNoteInNotes" @knowledge-changed="notesView?.knowledgeChanged($event)" @split-change="setSplit" />
       <div v-show="mode === 'notes' || (mode === 'chat' && splitChat)" class="notes-main">
         <NotesView :open-request="openNoteRequest" :compact="mode === 'chat'" :navigation-busy="busy" @busy-change="noteBusy = $event" ref="notesView" />
       </div>

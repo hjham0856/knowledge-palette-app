@@ -56,6 +56,14 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export interface KnowledgeUpdate {
+  id: number;
+  status: "running" | "applied" | "failed";
+  counts: Partial<Record<"CREATE" | "UPDATE" | "LINK" | "NONE", number>>;
+  error: string | null;
+  changes: { op: string; path: string; after_sha256: string }[];
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -117,6 +125,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ full }),
     }),
+  knowledgeUpdate: (id: number) =>
+    req<{ status: string; skipped: boolean }>(`/api/conversations/${id}/knowledge-update`, { method: "POST" }),
+  knowledgeUpdates: (id: number) =>
+    req<{ updates: KnowledgeUpdate[] }>(`/api/conversations/${id}/knowledge-updates`),
   chatStatus: () => req<ChatStatus>("/api/chat/status"),
   listConversations: () => req<{ conversations: Conversation[] }>("/api/conversations"),
   createConversation: (title: string) =>

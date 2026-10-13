@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from . import chat, db, indexer, llm, retrieval
+from . import chat, db, indexer, knowledge, llm, retrieval
 from .workspace import Workspace
 
 app = FastAPI(title="Knowledge Palette")
@@ -315,3 +315,26 @@ def search_sources(q: str = Query(...), k: int = Query(10)):
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"검색 불가: {e}")
+
+
+@app.post("/api/conversations/{conv_id}/knowledge-update")
+async def conversation_knowledge_update(conv_id: int):
+    result = await knowledge.request_update(current(), conv_id)
+    if result["status"] == "not-found":
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
+    if result["status"] == "failed":
+        raise HTTPException(status_code=503, detail=result["error"])
+    return result
+
+
+@app.get("/api/conversations/{conv_id}/knowledge-updates")
+def conversation_knowledge_updates(conv_id: int):
+    try:
+        result = knowledge.list_updates(current(), conv_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Knowledge Update DB 사용 불가")
+    if result.get("status") == "not-found":
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
+    return result

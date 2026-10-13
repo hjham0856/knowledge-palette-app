@@ -27,6 +27,10 @@ class LLMClient(Protocol):
         """
         ...
 
+    async def complete(self, messages: list[dict], json_mode: bool = False) -> str:
+        """정상 완료 본문을 반환하며 스트리밍과 같은 예외 계약을 따른다."""
+        ...
+
 
 def config() -> dict[str, str] | None:
     base_url = os.environ.get("KP_LLM_BASE_URL", "").strip().rstrip("/")
@@ -126,3 +130,31 @@ class OpenAICompatibleClient:
             except httpx.HTTPError as e:
                 raise LLMInterrupted("LLM 스트림 연결이 끊겼거나 응답 시간이 초과되었습니다.") from e
         raise LLMInterrupted("LLM 스트림이 [DONE] 없이 종료되었습니다.")
+
+    async def complete(self, messages: list[dict], json_mode: bool = False) -> str:
+        cfg = self._config
+        headers = {"Content-Type": "application/json"}
+        if cfg["api_key"]:
+            headers["Authorization"] = f"Bearer {cfg['api_key']}"
+        payload = {"model": self._model, "messages": messages, "stream": False}
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        if cfg["reasoning_effort"]:
+            payload["reasoning_effort"] = cfg["reasoning_effort"]
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0)) as client:
+                response = await client.post(f"{cfg['base_url']}/chat/completions", json=payload, headers=headers)
+            if response.status_code != 200:
+                raise LLMStreamError(f"LLM API 오류 (HTTP {response.status_code})")
+            try:
+                choice = response.json()["choices"][0]
+                content = choice["message"].get("content")
+                if choice.get("finish_reason") != "stop":
+                    raise LLMInterrupted("LLM 응답이 정상 종료되지 않았습니다.")
+                if not isinstance(content, str) or not content.strip():
+                    raise LLMStreamError("LLM이 빈 응답을 반환했습니다.")
+                return content
+            except (ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
+                raise LLMStreamError("LLM 응답 형식이 올바르지 않습니다.") from e
+        except httpx.HTTPError as e:
+            raise LLMInterrupted("LLM 연결이 끊겼거나 응답 시간이 초과되었습니다.") from e

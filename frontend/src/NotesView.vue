@@ -48,6 +48,7 @@ const text = ref("");
 const savedText = ref("");
 const saveState = ref<"saved" | "dirty" | "saving" | "error">("saved");
 const saveError = ref("");
+const knowledgeWarning = ref("");
 const searchQ = ref("");
 const searchResults = ref<{ path: string; name: string; in_title: boolean; snippet: string }[]>([]);
 const backlinks = ref<NoteMeta[]>([]);
@@ -92,6 +93,7 @@ async function selectNote(note: NoteMeta) {
       // 로드 도중 다른 선택이 있었다면 이 결과는 버린다.
       if (seq !== navSeq) return;
       current.value = note;
+      knowledgeWarning.value = "";
       text.value = r.content;
       savedText.value = r.content;
       saveState.value = "saved";
@@ -124,6 +126,7 @@ async function createNote() {
       await refreshNotes();
       const r = await api.readNote(created.path);
       current.value = created;
+      knowledgeWarning.value = "";
       text.value = r.content;
       savedText.value = r.content;
       saveState.value = "saved";
@@ -179,6 +182,7 @@ async function flushSave(): Promise<boolean> {
       await api.writeNote(target.path, snapshot);
       if (current.value && current.value.path === target.path) {
         savedText.value = snapshot;
+        knowledgeWarning.value = "";
         if (text.value === snapshot) saveState.value = "saved";
         else scheduleSave(); // 저장 중 추가 편집이 있었다면 다시 예약
       }
@@ -342,7 +346,32 @@ onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
 });
 
-defineExpose({ flushSave, isDirty, refreshNotes });
+async function knowledgeChanged(paths: string[]) {
+  try {
+    await refreshNotes();
+    const target = current.value;
+    if (!target || !paths.includes(target.path)) return;
+    if (isDirty()) {
+      knowledgeWarning.value = "AI가 이 Note를 갱신함 — 저장 시 덮어씀";
+      return;
+    }
+    const snapshot = text.value;
+    const result = await api.readNote(target.path);
+    if (current.value?.path !== target.path) return;
+    if (isDirty() || text.value !== snapshot) {
+      knowledgeWarning.value = "AI가 이 Note를 갱신함 — 저장 시 덮어씀";
+      return;
+    }
+    text.value = result.content;
+    savedText.value = result.content;
+    knowledgeWarning.value = "";
+    await refreshBacklinks(target.path);
+  } catch (e: any) {
+    status.value = `AI 갱신 Note를 불러오지 못했습니다: ${e.message}`;
+  }
+}
+
+defineExpose({ flushSave, isDirty, refreshNotes, knowledgeChanged });
 </script>
 
 <template>
@@ -378,6 +407,7 @@ defineExpose({ flushSave, isDirty, refreshNotes });
           </span>
           <button :disabled="busy" v-if="saveState === 'error'" data-state="error" @click="retrySave">다시 저장</button>
         </div>
+        <p v-if="knowledgeWarning" class="banner" role="alert">{{ knowledgeWarning }}</p>
         <p v-if="status" class="error" role="alert">{{ status }}</p>
         <div class="panes">
           <div class="editor">

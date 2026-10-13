@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator
 
 import anyio
 from starlette.concurrency import run_in_threadpool
-from . import db, indexer, llm, retrieval
+from . import db, indexer, knowledge, llm, retrieval
 from .workspace import Workspace
 
 # 대화가 무한히 길어지지 않도록 최근 N개 메시지만 모델에 보낸다.
@@ -263,6 +263,8 @@ async def generate(conv_id: int, ws: Workspace, query: str, include_sources: boo
         finally:
             _inflight_discard(conv_id)
     if assistant_status == "complete":
+        # 스트림 수명과 분리해 LLM 정리 작업이 답변 완료를 지연시키지 않게 한다.
+        knowledge.schedule_update(ws, conv_id)
         yield "done", {"message_id": msg_id, "status": assistant_status, "citations": used}
     else:
         yield "error", {"message_id": msg_id, "status": assistant_status, "detail": detail, "citations": used}

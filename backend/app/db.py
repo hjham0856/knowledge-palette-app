@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 from pathlib import Path
 
 DEFAULT_DSN = "postgresql://palette:palette@127.0.0.1:54329/knowledge_palette"
@@ -58,6 +59,30 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS knowledge_watermark BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS knowledge_updates (
+  id BIGSERIAL PRIMARY KEY,
+  workspace TEXT NOT NULL,
+  conversation_id BIGINT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  status TEXT NOT NULL CHECK (status IN ('running','applied','failed')),
+  message_start BIGINT NOT NULL,
+  message_end BIGINT NOT NULL,
+  counts JSONB NOT NULL DEFAULT '{}',
+  decisions JSONB NOT NULL DEFAULT '[]',
+  error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS knowledge_running ON knowledge_updates(conversation_id) WHERE status='running';
+CREATE TABLE IF NOT EXISTS knowledge_changes (
+  id BIGSERIAL PRIMARY KEY,
+  update_id BIGINT NOT NULL REFERENCES knowledge_updates(id) ON DELETE CASCADE,
+  workspace TEXT NOT NULL,
+  op TEXT NOT NULL,
+  path TEXT NOT NULL,
+  before TEXT,
+  after TEXT NOT NULL,
+  after_sha256 TEXT NOT NULL
+);
 """
 
 
@@ -81,12 +106,23 @@ def available() -> bool:
         return False
 
 
+_schema_lock = threading.Lock()
+_ready_databases: set[str] = set()
+
+
 def ensure_schema() -> None:
-    with connect() as conn:
-        for stmt in SCHEMA.split(";"):
-            if stmt.strip():
-                conn.execute(stmt)
-        conn.commit()
+    # 백그라운드 정리와 Chat 조회가 DDL 잠금을 동시에 승격하면 deadlock이 생길 수 있다.
+    # 같은 DB의 스키마 준비는 성공한 뒤 프로세스 수명 동안 재실행하지 않는다.
+    with _schema_lock:
+        database = dsn()
+        if database in _ready_databases:
+            return
+        with connect() as conn:
+            for stmt in SCHEMA.split(";"):
+                if stmt.strip():
+                    conn.execute(stmt)
+            conn.commit()
+        _ready_databases.add(database)
 
 
 def sha256_of(path: Path) -> str:

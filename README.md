@@ -103,7 +103,7 @@ OpenAI를 사용하려면 주소를 `https://api.openai.com/v1`, `KP_CHAT_MODEL`
 `KP_LLM_API_KEY`를 개인 API 키로 지정한다. 다른 OpenAI 호환 서비스도 제공받은 `/v1` 주소·모델·키로 설정한다.
 `KP_KNOWLEDGE_MODEL`은 비우면 Chat 모델을 사용한다. 키는 `.env`에만 두고 공유하지 않는다.
 
-`KP_LLM_PROVIDER`의 기본값이자 현재 지원 값은 `openai-compatible`이다. Chat은 `get_client("chat")`에서 받은 `LLMClient` 인터페이스로 호출하며, 실제 HTTP 통신은 `OpenAICompatibleClient`가 맡는다. 새 Provider를 추가하려면 `stream_chat(messages)`로 본문 스트림을 반환하고 기존 설정·중단·오류 예외 계약을 지키는 구현체를 만든 뒤, `get_client(role)`의 선택 분기에 연결한다. 역할은 `chat`/`knowledge`이며 비스트리밍 JSON 생성은 Phase 4에서 추가한다.
+`KP_LLM_PROVIDER`의 기본값이자 현재 지원 값은 `openai-compatible`이다. Chat은 `get_client("chat")`에서 받은 `LLMClient` 인터페이스로 호출하며, 실제 HTTP 통신은 `OpenAICompatibleClient`가 맡는다. 새 Provider를 추가하려면 `stream_chat(messages)`로 본문 스트림을 반환하고 기존 설정·중단·오류 예외 계약을 지키는 구현체를 만든 뒤, `get_client(role)`의 선택 분기에 연결한다. 역할은 `chat`/`knowledge`이며 `complete(messages, json_mode)`는 비스트리밍 본문을 반환한다.
 
 `KP_LLM_REASONING_EFFORT=none`은 Ollama에서 thinking을 끄는 설정이다. 값이 있으면 요청에 `reasoning_effort`로 그대로 전달한다. 이 파라미터를 지원하지 않는 서비스에서는 값을 비워 보내지 않도록 한다. 스트림의 reasoning 필드는 답변 본문에 포함하지 않는다.
 
@@ -118,3 +118,24 @@ Chat은 Markdown을 수정하지 않는다. 대화·메시지·인용은 Postgre
 검색 준비 실패는 화면에 표시하며 근거 없이 대화를 계속한다. 오래된 근거는 제외한다.
 빈 응답과 형식 오류는 `error`, 연결 끊김이나 정상 종료가 아닌 응답은 `interrupted`이며 `complete`와 구분한다.
 Provider를 설정하지 않아도 Notes/Search/Sources는 사용할 수 있다.
+
+
+## Phase 4 — Knowledge Update
+
+정상 완료된 대화에서 다시 찾거나 발전시킬 가치가 있는 사용자 생각·질문·통찰·이해를 최대 5개 추출한다.
+미처리 완료 턴이 3개 쌓이면 답변 저장 뒤 백그라운드에서 실행한다. 다른 대화로 전환하거나 새 대화를 시작할 때,
+또는 Chat의 **지금 정리**를 누르면 완료 턴 1개부터 실행한다. 중단·실패 응답과 그 사용자 턴은 제외한다.
+
+기존 Note를 hybrid+MMR로 검색한 뒤 새 Note 생성(CREATE), 끝에 단락 추가(UPDATE), 연결 추가(LINK),
+저장하지 않음(NONE)을 결정한다. 기존 본문은 보존하고 frontmatter의 기존 updated 값만 갱신한다.
+sources 원본, tags, sources 속성은 자동 변경하지 않는다. Knowledge 모델은 get_client("knowledge")만 사용한다.
+
+Chat 아래에 새 Note·보강·추가 연결의 누적 수와 변경된 Note를 표시한다. 링크를 누르면 Note가 열린다.
+열린 Note가 갱신되면 저장된 편집기는 다시 불러오고, 미저장 초안이 있으면 덮어쓰지 않고 경고한다.
+요청 직후와 응답 완료 뒤에는 2초 간격으로 최대 약 4분 20초 동안 상태를 확인한다.
+실패하면 **지금 정리**로 재시도할 수 있다.
+
+한 실행의 변경 전후 원문과 SHA-256은 DB에 기록한다. 반영 중 실패하면 전체 파일 변경을 복구하고,
+실패한 실행은 처리 위치를 옮기지 않는다. 반영 후 재색인 실패는 Markdown을 유지하고 stale로 남긴다.
+DB 연결 자체가 불가능하면 실행/실패 기록도 DB에 남길 수 없으며 요청 오류로 알린다.
+History 화면·Diff·Undo는 Phase 5에서 구현한다.

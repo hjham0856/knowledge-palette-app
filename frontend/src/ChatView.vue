@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import MarkdownIt from "markdown-it";
-import { api, ChatMessage, ChatStatus, Conversation, ContextItem } from "./api";
+import { api, ChatMessage, ChatStatus, Conversation, ContextItem, KnowledgeUpdate } from "./api";
 
 const props = defineProps<{ busy: boolean; splitOn: boolean }>();
 
@@ -10,6 +10,7 @@ const wideScreen = window.matchMedia("(min-width: 769px)").matches;
 const emit = defineEmits<{
   (e: "open-note", path: string): void;
   (e: "split-change", on: boolean): void;
+  (e: "knowledge-changed", paths: string[]): void;
 }>();
 
 const status = ref<ChatStatus | null>(null);
@@ -37,6 +38,82 @@ let controller: AbortController | null = null;
 let activeSend: Promise<void> | null = null;
 // 취소 직후 서버의 저장이 끝나기 전에도 해당 대화의 부분 응답을 다시 보여준다.
 const pendingMessages = new Map<number, ChatMessage[]>();
+
+const updates = ref<KnowledgeUpdate[]>([]);
+const knowledgeError = ref("");
+const knowledgeNotice = ref("");
+const knowledgeRequesting = ref(false);
+const knowledgeRunning = computed(() => knowledgeRequesting.value || updates.value.some(u => u.status === "running"));
+const knowledgeCounts = computed(() => {
+  const counts = { CREATE: 0, UPDATE: 0, LINK: 0 };
+  for (const update of updates.value.filter(u => u.status === "applied")) {
+    for (const op of ["CREATE", "UPDATE", "LINK"] as const) counts[op] += update.counts[op] ?? 0;
+  }
+  return counts;
+});
+const changedNotes = computed(() => [...new Set(updates.value.filter(u => u.status === "applied").flatMap(u => u.changes.map(c => c.path)))]);
+const latestFailure = computed(() => updates.value[0]?.status === "failed" ? updates.value[0].error : "");
+const seenUpdates = new Set<number>();
+const watchedConversations = new Set<number>();
+let knowledgeTimer: ReturnType<typeof setTimeout> | null = null;
+let disposed = false;
+
+async function refreshKnowledge(id: number, notify = true) {
+  try {
+    const result = await api.knowledgeUpdates(id);
+    if (disposed) return false;
+    if (currentId.value === id) {
+      updates.value = result.updates;
+      knowledgeError.value = "";
+    }
+    for (const update of result.updates) {
+      if (update.status === "applied" && !seenUpdates.has(update.id)) {
+        seenUpdates.add(update.id);
+        if (notify) emit("knowledge-changed", update.changes.map(c => c.path.replace(/^notes\//, "")));
+      }
+    }
+    return result.updates.some(u => u.status === "running");
+  } catch (e: any) {
+    if (currentId.value === id) knowledgeError.value = e.message;
+    return false;
+  }
+}
+
+function pollKnowledge(id: number) {
+  watchedConversations.add(id);
+  if (knowledgeTimer) return;
+  let polls = 0;
+  const tick = async () => {
+    if (disposed) return;
+    for (const convId of [...watchedConversations]) {
+      const running = await refreshKnowledge(convId);
+      if (!running && polls > 1) watchedConversations.delete(convId);
+    }
+    polls++;
+    // 늦은 로컬 모델도 기다리되 무한 폴링은 하지 않는다. 수동 버튼으로 다시 조회할 수 있다.
+    if (watchedConversations.size && polls < 130) knowledgeTimer = setTimeout(tick, 2000);
+    else { knowledgeTimer = null; watchedConversations.clear(); }
+  };
+  knowledgeTimer = setTimeout(tick, 500);
+}
+
+async function requestKnowledge(id: number | null = currentId.value) {
+  if (!id) return;
+  knowledgeRequesting.value = true;
+  try {
+    const result = await api.knowledgeUpdate(id);
+    if (currentId.value === id) {
+      knowledgeNotice.value = result.status === "idle" ? "정리할 완료 턴이 없습니다." :
+        result.skipped ? "이미 정리 중입니다. 새 요청은 건너뛰었습니다." : "";
+    }
+    pollKnowledge(id);
+    await refreshKnowledge(id);
+  } catch (e: any) {
+    if (currentId.value === id) knowledgeError.value = e.message;
+  } finally {
+    knowledgeRequesting.value = false;
+  }
+}
 
 // 인용 라벨([N1] 등)을 링크로 바꾸는 마크다운 확장. 컨텍스트에 실제 존재하는 라벨만 클릭 가능하게 한다.
 function makeMd(contextLabels: Set<string>) {
@@ -78,9 +155,14 @@ async function selectConversation(id: number) {
   if (loading.value || props.busy || currentId.value === id) return;
   loading.value = true;
   await cancelActiveStream();
+  await requestKnowledge(currentId.value);
   try {
     const c = await api.getConversation(id);
     currentId.value = id;
+    updates.value = [];
+    knowledgeNotice.value = "";
+    await refreshKnowledge(id, false);
+    pollKnowledge(id);
     const pending = pendingMessages.get(id);
     if (pending && c.messages[c.messages.length - 1]?.role !== "assistant") {
       messages.value = pending;
@@ -102,9 +184,13 @@ async function newConversation() {
   if (loading.value || props.busy) return;
   loading.value = true;
   await cancelActiveStream();
+  await requestKnowledge(currentId.value);
   try {
     const c = await api.createConversation("");
     currentId.value = c.id;
+    updates.value = [];
+    knowledgeNotice.value = "";
+    knowledgeError.value = "";
     messages.value = [];
     streamNotesState.value = "";
     streamSourceState.value = "";
@@ -239,6 +325,7 @@ async function sendMessage() {
     controller = null;
     streamText.value = "";
     await loadConversations();
+    pollKnowledge(convId);
   }
 }
 
@@ -302,6 +389,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
+  if (knowledgeTimer) clearTimeout(knowledgeTimer);
   if (controller) controller.abort();
 });
 
@@ -384,6 +473,19 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
         <p v-if="streamError" class="error" role="alert">{{ streamError }}</p>
       </div>
 
+      <section class="knowledge-summary" aria-label="대화의 지식 정리" aria-live="polite">
+        <div class="toolbar">
+          <span>이번 대화에서 + 새 Note {{ knowledgeCounts.CREATE }} · ~ 보강 {{ knowledgeCounts.UPDATE }} · ↔ 링크 {{ knowledgeCounts.LINK }}</span>
+          <span v-if="knowledgeRunning" class="status-chip" data-state="loading">정리 중…</span>
+          <button :disabled="!currentId || streaming || loading || busy || knowledgeRequesting" @click="requestKnowledge()">지금 정리</button>
+        </div>
+        <p v-if="knowledgeError || latestFailure" class="error">{{ knowledgeError || latestFailure }}</p>
+        <p v-if="knowledgeNotice" class="muted">{{ knowledgeNotice }}</p>
+        <div class="toolbar">
+          <button v-for="path in changedNotes" :key="path" class="link-button" :disabled="busy" @click="emit('open-note', path.replace(/^notes\//, ''))">{{ path.replace(/^notes\//, '') }}</button>
+        </div>
+      </section>
+
       <div v-if="status?.configured" class="composer">
         <textarea aria-label="Chat 질문" :aria-invalid="!!streamError" v-model="draft" placeholder="질문을 입력하세요" :disabled="streaming || loading || busy" @keydown.enter.meta.prevent="send" @keydown.enter.ctrl.prevent="send" />
         <button v-if="streaming" @click="stop">중지</button>
@@ -427,6 +529,7 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
 .refs li { overflow-wrap: anywhere; margin-bottom: var(--space-xs); }
 .refs .label { color: var(--color-accent); font-family: var(--font-mono); }
 .refs .used { color: var(--color-success-ink); }
+.knowledge-summary { padding: var(--space-sm) var(--space-lg); border-top: var(--rule-hair); font-size: var(--text-xs); max-height: 180px; overflow: auto; }
 .composer { display: flex; align-items: flex-end; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); border-top: var(--rule-hair); background: var(--color-paper-0); }
 .composer textarea { flex: 1; min-height: 80px; max-height: 240px; resize: vertical; }
 .error { margin: var(--space-sm); }

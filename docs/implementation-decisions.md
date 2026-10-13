@@ -75,6 +75,19 @@
 - **실행 1회를 Knowledge Update 1건으로 묶어, 변경 전/후 내용과 해시를 기록한다.** 중간에 실패하면 이미 쓴 파일을 되돌린다. Phase 5의 "Update 전체 Undo"가 이 기록을 그대로 쓰고, 실패한 실행이 반쯤 반영된 상태로 남지 않게 하기 위해서다.
 - **LLM 출력은 JSON으로 요청하고 pydantic으로 검증한다.** 실패하면 1회 재시도하고, 그래도 실패하면 파일을 바꾸지 않고 실패로 기록한다. 작은 로컬 모델은 형식을 자주 어기므로, 잘못된 출력으로 파일이 바뀌는 일을 막는다.
 
+### Phase 4 구현 세부 정책
+
+- 완료 턴은 complete 사용자 메시지 바로 뒤에 complete assistant 메시지가 있는 짝이다. 사용자 메시지는 질문 저장 시 이미 complete이므로, 응답 상태까지 확인해야 interrupted/error 턴을 제외할 수 있다.
+- watermark는 applied 실행의 마지막 처리 메시지 id로만 이동한다. 빈 후보/NONE만 있는 정상 실행도 처리 완료로 보며, failed 실행은 같은 범위를 재시도할 수 있다. 참고 맥락은 직전 완료 메시지 4개(2턴)다.
+- 요청은 실행을 등록한 뒤 즉시 running을 반환한다. 작업 task를 서버가 보존하며 LLM 호출은 응답 스트림과 분리한다. 조건 확인은 대화별 asyncio lock으로 직렬화하고 실제 실행 중에는 새 요청을 건너뛴다. DB conversation 행 잠금과 running 고유 인덱스도 중복 실행을 막는다.
+- 모든 후보의 결정과 변경안을 메모리에 준비한 뒤 파일을 쓴다. 이후 후보는 같은 실행에서 CREATE한 Note도 연결할 수 있다. 같은 파일에 여러 변경이 있으면 최초 before와 최종 after를 한 change로 기록하며 CREATE/UPDATE의 의미를 보존한다.
+- 카운트는 새 Note·보강 대상 파일의 수와 실제 추가한 연결의 수다. CREATE/UPDATE에 포함한 연결도 링크 수에 포함한다. NONE의 후보와 이유는 decisions에 남긴다.
+- Note 원문은 bytes를 UTF-8로 해석해 줄바꿈을 정규화하지 않는다. updated의 값만 치환하며 인용 부호·주석·다른 키를 보존한다. updated가 없으면 키나 frontmatter를 새로 만들지 않는다.
+- 검색 대상 밖의 target/links와 content 안의 허용되지 않은 wikilink는 NONE으로 기록한다. 링크 표기는 기존 Phase 1 규칙에 따라 중복 stem이면 notes 기준 상대 경로를 쓴다.
+- 반영 트랜잭션에서 파생 인덱스 행을 stale로 기록한다. 반영 후 기존 indexer로 재색인하며, 실패한 변경 Note는 stale로 유지한다. DB가 완전히 불가능한 경우에는 failed 기록 자체도 저장할 수 없다는 물리적 한계가 있다.
+- UI는 초기 대화 조회의 과거 변경을 새 변경으로 통지하지 않는다. 새 applied 결과만 열린 Note에 알리며 dirty 초안은 유지한다. 간단한 폴링은 2초 간격, 최대 130회이고 이후 수동 조회/재요청이 가능하다.
+- 스키마 준비는 DB 주소별로 프로세스에서 한 번만 성공 실행한다. thread lock으로 초기 DDL을 직렬화해 자동 정리와 Chat 조회의 잠금 승격 deadlock을 방지한다.
+
 ## Phase 5 — History / Undo
 
 - **Git이 아니라 앱 자체 History(DB 기록)를 쓴다.** 아키텍처 문서가 앱 자체 History를 우선하라고 했다. 또 Workspace가 Git 저장소가 아닐 수 있다.
