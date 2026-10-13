@@ -10,6 +10,14 @@ export interface NoteGraph {
   unresolved: { target: string; status: "missing" | "ambiguous"; matches: string[] }[];
 }
 
+export interface BaseNote {
+  path: string;
+  name: string;
+  title: string;
+  frontmatter: Record<string, unknown>;
+  error: string | null;
+}
+
 export interface SearchHit {
   kind: string;
   path: string;
@@ -28,6 +36,11 @@ export interface SourceStatus {
   indexed_path: string;
   status: string;
   error: string | null;
+}
+
+export interface RelatedNote extends SearchHit, NoteMeta {
+  outgoing: boolean;
+  backlink: boolean;
 }
 
 export interface ChatStatus {
@@ -87,6 +100,7 @@ export const api = {
       body: JSON.stringify({ path }),
     }),
   listNotes: () => req<{ notes: NoteMeta[] }>("/api/notes"),
+  noteFrontmatter: () => req<{ notes: BaseNote[] }>("/api/notes/frontmatter"),
   noteNames: () => req<{ notes: NoteMeta[] }>("/api/notes/names"),
   readNote: (path: string) =>
     req<{ path: string; content: string }>(`/api/notes/content?path=${encodeURIComponent(path)}`),
@@ -109,6 +123,8 @@ export const api = {
   backlinks: (path: string) =>
     req<{ backlinks: NoteMeta[] }>(`/api/notes/backlinks?path=${encodeURIComponent(path)}`),
   graph: (path: string) => req<NoteGraph>(`/api/notes/graph?path=${encodeURIComponent(path)}`),
+  relatedNotes: (path: string) =>
+    req<{ results: RelatedNote[]; index_incomplete: boolean }>(`/api/notes/related?path=${encodeURIComponent(path)}`),
   resolve: (target: string) =>
     req<{ status: "ok" | "missing" | "ambiguous"; matches: string[] }>(
       `/api/links/resolve?target=${encodeURIComponent(target)}`

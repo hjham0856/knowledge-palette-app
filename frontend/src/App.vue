@@ -6,6 +6,7 @@ import SourcesView from "./SourcesView.vue";
 import ChatView from "./ChatView.vue";
 import NotesView from "./NotesView.vue";
 import GraphView from "./GraphView.vue";
+import BaseView from "./BaseView.vue";
 
 const modes = [
   { id: "chat", label: "Chat" },
@@ -13,6 +14,7 @@ const modes = [
   { id: "search", label: "Search" },
   { id: "sources", label: "Sources" },
   { id: "graph", label: "Graph" },
+  { id: "base", label: "Base" },
 ] as const;
 const mode = ref<(typeof modes)[number]["id"]>("chat");
 const splitChat = ref(false); // Chat에서 노트를 명시적으로 함께 볼 때만 켠다.
@@ -179,6 +181,7 @@ onBeforeUnmount(() => {
       <SearchView v-if="mode === 'search'" @open-note="openNoteInNotes" />
       <SourcesView v-if="mode === 'sources'" />
       <GraphView v-if="mode === 'graph'" :path="notesView?.current?.path ?? null" :busy="locked" @open-note="openGraphNote" @choose-note="setMode('notes')" />
+      <BaseView v-if="mode === 'base'" :navigation-busy="locked" @open-note="openNoteInNotes" />
     </main>
   </div>
 </template>
