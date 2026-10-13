@@ -370,3 +370,33 @@ def conversation_knowledge_updates(conv_id: int):
     if result.get("status") == "not-found":
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
     return result
+
+
+@app.get("/api/knowledge-updates")
+def knowledge_updates():
+    try:
+        return knowledge.history_updates(current())
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Knowledge Update DB 사용 불가")
+
+
+@app.get("/api/knowledge-updates/{update_id}")
+def knowledge_update_detail(update_id: int):
+    try:
+        return knowledge.update_detail(current(), update_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Knowledge Update DB 사용 불가")
+
+
+@app.post("/api/knowledge-updates/{update_id}/undo")
+def knowledge_update_undo(update_id: int):
+    try:
+        return knowledge.undo_update(current(), update_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Undo 준비 실패: DB·Note 읽기 상태를 확인하세요.")

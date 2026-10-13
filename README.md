@@ -161,4 +161,17 @@ Chat 아래에 새 Note·보강·추가 연결의 누적 수와 변경된 Note�
 한 실행의 변경 전후 원문과 SHA-256은 DB에 기록한다. 반영 중 실패하면 전체 파일 변경을 복구하고,
 실패한 실행은 처리 위치를 옮기지 않는다. 반영 후 재색인 실패는 Markdown을 유지하고 stale로 남긴다.
 DB 연결 자체가 불가능하면 실행/실패 기록도 DB에 남길 수 없으며 요청 오류로 알린다.
-History 화면·Diff·Undo는 Phase 5에서 구현한다.
+History 화면·Diff는 Phase 5-B에서 구현한다.
+
+## Phase 5-A — History / Undo API
+
+- `GET /api/knowledge-updates`: 현재 Workspace의 실행 목록(최신 id부터), 대화 제목·상태·카운트·오류·Undo 시각.
+- `GET /api/knowledge-updates/{id}`: 변경 전후 원문과 CREATE/UPDATE/LINK/NONE 결정 및 이유.
+- `POST /api/knowledge-updates/{id}/undo`: applied 실행 전체를 역순으로 되돌린다. CREATE 파일은 삭제하고 UPDATE/LINK는 변경 전 바이트를 복원한다.
+
+Undo 전에 모든 대상 파일의 SHA-256(내용 지문)을 AI 반영 직후 기록과 비교한다.
+사용자 편집이나 이후 AI 변경이 있거나 파일이 없으면 **409**와 충돌 경로(`modified`/`missing`)를 반환하고 어떤 파일도 바꾸지 않는다.
+같은 Note를 바꾼 최신 실행부터 Undo해야 이전 실행도 되돌릴 수 있다.
+쓰기 실패 시 이미 되돌린 파일을 AI 반영 후 내용으로 복구하며 상태는 applied로 남긴다.
+성공하면 undone과 undone_at을 기록하고 Notes만 재색인한다. 재색인 실패는 Markdown을 유지하며 stale(검색 색인이 이전 상태)로 표시하고 `reindex_error`로 알린다.
+다른 Workspace의 실행은 404, applied가 아닌 실행은 400이다. 기존 Chat의 대화별 API는 유지하며 Redo는 지원하지 않는다.
