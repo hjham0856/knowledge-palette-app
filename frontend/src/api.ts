@@ -78,17 +78,54 @@ export interface ChatMessage {
 
 export interface KnowledgeUpdate {
   id: number;
-  status: "running" | "applied" | "failed";
+  status: "running" | "applied" | "failed" | "undone";
   counts: Partial<Record<"CREATE" | "UPDATE" | "LINK" | "NONE", number>>;
   error: string | null;
   changes: { op: string; path: string; after_sha256: string }[];
+}
+
+export interface UpdateSummary {
+  id: number;
+  created_at: string;
+  conversation_id: number;
+  conversation_title: string;
+  status: KnowledgeUpdate["status"];
+  counts: Record<"CREATE" | "UPDATE" | "LINK" | "NONE", number>;
+  error: string | null;
+  undone_at: string | null;
+}
+
+export interface UpdateDetail extends UpdateSummary {
+  changes: { id: number; op: "CREATE" | "UPDATE" | "LINK"; path: string; before: string | null; after: string }[];
+  decisions: {
+    action: "CREATE" | "UPDATE" | "LINK" | "NONE";
+    path: string | null;
+    reason: string;
+    candidate: { kind: string; title: string; content: string };
+    dropped_links: string[];
+  }[];
+}
+
+export interface UndoResult {
+  id: number;
+  status: "undone";
+  undone_at: string;
+  restored: string[];
+  deleted: string[];
+  reindex_error: string | null;
+}
+
+export class ApiError extends Error {
+  constructor(public status: number, public detail: string | { message: string; conflicts: { path: string; reason: "modified" | "missing" }[] }) {
+    super(typeof detail === "string" ? detail : detail.message);
+  }
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
-    throw new Error(detail.detail ?? `${res.status}`);
+    throw new ApiError(res.status, detail.detail ?? `${res.status}`);
   }
   return res.json();
 }
@@ -153,6 +190,9 @@ export const api = {
     req<{ status: string; skipped: boolean }>(`/api/conversations/${id}/knowledge-update`, { method: "POST" }),
   knowledgeUpdates: (id: number) =>
     req<{ updates: KnowledgeUpdate[] }>(`/api/conversations/${id}/knowledge-updates`),
+  updateHistory: () => req<{ updates: UpdateSummary[] }>("/api/knowledge-updates"),
+  updateDetail: (id: number) => req<UpdateDetail>(`/api/knowledge-updates/${id}`),
+  undoUpdate: (id: number) => req<UndoResult>(`/api/knowledge-updates/${id}/undo`, { method: "POST" }),
   chatStatus: () => req<ChatStatus>("/api/chat/status"),
   listConversations: () => req<{ conversations: Conversation[] }>("/api/conversations"),
   createConversation: (title: string) =>

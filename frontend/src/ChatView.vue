@@ -9,6 +9,8 @@ const wideScreen = window.matchMedia("(min-width: 769px)").matches;
 
 const emit = defineEmits<{
   (e: "open-note", path: string): void;
+  (e: "open-history", id: number): void;
+  (e: "undo", id: number): void;
   (e: "split-change", on: boolean): void;
   (e: "knowledge-changed", paths: string[]): void;
 }>();
@@ -394,7 +396,11 @@ onBeforeUnmount(() => {
   if (controller) controller.abort();
 });
 
-defineExpose({ cancelActiveStream });
+async function historyChanged() {
+  if (currentId.value !== null) await refreshKnowledge(currentId.value, false);
+}
+
+defineExpose({ cancelActiveStream, historyChanged });
 </script>
 
 <template>
@@ -479,6 +485,12 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
           <span v-if="knowledgeRunning" class="status-chip" data-state="loading">정리 중…</span>
           <button :disabled="!currentId || streaming || loading || busy || knowledgeRequesting" @click="requestKnowledge()">지금 정리</button>
         </div>
+        <div v-for="update in updates" :key="update.id" class="toolbar update-actions">
+          <span>#{{ update.id }} · + 새 Note {{ update.counts.CREATE ?? 0 }} · ~ 보강 {{ update.counts.UPDATE ?? 0 }} · ↔ 링크 {{ update.counts.LINK ?? 0 }}</span>
+          <span class="status-chip" :data-state="update.status === 'applied' ? 'success' : update.status === 'failed' ? 'error' : update.status === 'undone' ? 'interrupted' : 'loading'">{{ update.status }}</span>
+          <button :disabled="busy" @click="emit('open-history', update.id)">변경 내용</button>
+          <button v-if="update.status === 'applied'" :disabled="busy || streaming || knowledgeRunning" @click="emit('undo', update.id)">Undo</button>
+        </div>
         <p v-if="knowledgeError || latestFailure" class="error">{{ knowledgeError || latestFailure }}</p>
         <p v-if="knowledgeNotice" class="muted">{{ knowledgeNotice }}</p>
         <div class="toolbar">
@@ -504,6 +516,8 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
 </template>
 
 <style scoped>
+.update-actions { margin-top: var(--space-xs); }
+.update-actions > span:first-child { overflow-wrap: anywhere; min-width: 0; }
 .chat-view { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: clip; }
 .convs { width: 212px; flex-shrink: 0; border-right: var(--rule-hair); padding: var(--space-md); overflow: auto; }
 .convs:not([open]) { width: 112px; }

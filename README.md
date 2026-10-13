@@ -161,9 +161,17 @@ Chat 아래에 새 Note·보강·추가 연결의 누적 수와 변경된 Note�
 한 실행의 변경 전후 원문과 SHA-256은 DB에 기록한다. 반영 중 실패하면 전체 파일 변경을 복구하고,
 실패한 실행은 처리 위치를 옮기지 않는다. 반영 후 재색인 실패는 Markdown을 유지하고 stale로 남긴다.
 DB 연결 자체가 불가능하면 실행/실패 기록도 DB에 남길 수 없으며 요청 오류로 알린다.
-History 화면·Diff는 Phase 5-B에서 구현한다.
+## Phase 5 — History / Diff / Undo 사용법
 
-## Phase 5-A — History / Undo API
+1. **History**를 열면 현재 Workspace의 Knowledge Update(한 번의 지식 정리 실행)가 최신순으로 보인다. 출처 대화, 시각, 새 Note·보강·링크 수와 applied(반영됨) / undone(되돌림) / failed(실패) / running(진행 중) 상태를 확인한다.
+2. 기록을 선택해 변경 전(before) → 변경 후(after)의 줄 단위 Diff를 읽는다. `+`와 초록 배경은 추가, `-`와 오류색 배경은 삭제다. 긴 미변경 구간은 접고 변경 주변 3줄을 남긴다. 접힌 구간과 결정·이유(NONE 포함)는 펼쳐 볼 수 있다. Note 경로를 누르면 기존 저장 대기(flush) 후 Note가 열린다.
+3. Chat의 지식 정리 요약 아래에도 실행별 **변경 내용**과 **Undo**가 있다. 변경 내용은 해당 History 기록을 연다. 누적 수에는 applied 실행만 포함한다.
+4. applied 기록의 **Undo**를 누르고 전체 되돌리기를 확인한다. 이후 수정되거나 사라진 파일 때문에 서버가 409를 반환하면 충돌 경로를 표시한다. 부분 Undo와 Redo는 제공하지 않는다.
+5. 성공 후 History·Chat·Note 목록을 갱신한다. 열린 Note가 복원됐으면 다시 읽고, 삭제됐으면 닫는다. 미저장 초안은 덮어쓰지 않으며 예약 저장을 멈추고 경고한다. 이때 **다시 저장**은 복원 내용을 덮거나 삭제된 파일을 다시 만들 수 있으므로 초안을 먼저 확인한다. 검색 재색인 실패는 Undo 성공과 구분해 표시한다.
+
+입문자 코드 검토 순서: `HistoryView.vue`(목록·Diff) → `ChatView.vue`(실행별 버튼) → `App.vue`(Undo와 화면 연결) → `NotesView.vue`(저장·복원·삭제 처리) → `api.ts`(서버 응답 형식).
+
+### History / Undo API
 
 - `GET /api/knowledge-updates`: 현재 Workspace의 실행 목록(최신 id부터), 대화 제목·상태·카운트·오류·Undo 시각.
 - `GET /api/knowledge-updates/{id}`: 변경 전후 원문과 CREATE/UPDATE/LINK/NONE 결정 및 이유.
