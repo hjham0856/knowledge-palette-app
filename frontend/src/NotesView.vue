@@ -36,6 +36,11 @@ md.renderer.rules.wikilink = (tokens, idx) => {
   return `<a href="#" class="wikilink" data-target="${md.utils.escapeHtml(target)}">${md.utils.escapeHtml(label)}</a>`;
 };
 
+const listMedia = window.matchMedia("(min-width: 769px)");
+const listOpen = ref(listMedia.matches);
+function onListBreakpoint(e: MediaQueryListEvent) {
+  listOpen.value = e.matches;
+}
 const notes = ref<NoteMeta[]>([]);
 const allNames = ref<NoteMeta[]>([]);
 const current = ref<NoteMeta | null>(null);
@@ -210,7 +215,15 @@ async function refreshBacklinks(path: string) {
   }
 }
 
-const rendered = computed(() => md.render(text.value));
+// 속성은 원문 그대로 보여주고 본문만 Markdown으로 렌더링한다. 편집·저장 원본에는 손대지 않는다.
+const previewParts = computed(() => {
+  const frontmatter = /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(text.value);
+  return {
+    properties: frontmatter ? frontmatter[1] ?? "" : null,
+    body: frontmatter ? text.value.slice(frontmatter[0].length) : text.value,
+  };
+});
+const rendered = computed(() => md.render(previewParts.value.body));
 
 function onPreviewClick(e: MouseEvent) {
   if (busy.value) return;
@@ -320,10 +333,12 @@ function isDirty() {
 }
 
 onMounted(async () => {
+  listMedia.addEventListener("change", onListBreakpoint);
   await refreshNotes();
 });
 
 onBeforeUnmount(() => {
+  listMedia.removeEventListener("change", onListBreakpoint);
   if (saveTimer) clearTimeout(saveTimer);
 });
 
@@ -331,78 +346,104 @@ defineExpose({ flushSave, isDirty, refreshNotes });
 </script>
 
 <template>
-  <aside v-if="!compact">
-    <input :disabled="busy" v-model="searchQ" placeholder="검색 (제목/파일/본문)" @input="onSearch" />
-    <div v-if="searchResults.length" class="search-results">
-      <div v-for="r in searchResults" :key="r.path" class="result" @click="selectNote(r)">
-        <b>{{ r.name }}</b>
-        <small>{{ r.snippet }}</small>
-      </div>
+  <div class="notes-view card" :class="{ compact }">
+    <div v-if="!compact" class="list-toggle">
+      <button :aria-expanded="listOpen" aria-controls="note-list" @click="listOpen = !listOpen">{{ listOpen ? '목록 접기' : '노트 목록' }}</button>
     </div>
-
-    <input :disabled="busy" v-model="newNoteName" placeholder="새 노트 (예: folder/이름)" @keyup.enter="createNote" />
-    <button :disabled="busy" @click="createNote">+ 노트</button>
-
-    <ul class="notes">
-      <li v-for="n in notes" :key="n.path" :class="{ active: current?.path === n.path, disabled: busy }" @click="selectNote(n)">
-        {{ n.path }}
-      </li>
-    </ul>
-
-    <h3>Backlinks</h3>
-    <ul>
-      <li v-for="b in backlinks" :key="b.path" class="link" @click="selectNote(b)">[[{{ b.name }}]]</li>
-    </ul>
-  </aside>
-
-  <section class="workspace-canvas" v-if="current">
-    <div class="bar">
-      <b>{{ current.path }}</b>
-      <span class="save" :class="saveState">
-        {{ saveState === "saving" ? "저장 중…" : saveState === "dirty" ? "변경됨" : saveState === "error" ? "저장 실패: " + saveError : "저장됨" }}
-      </span>
-      <button :disabled="busy" v-if="saveState === 'error'" @click="retrySave">다시 저장</button>
-    </div>
-    <p v-if="status" class="status">{{ status }}</p>
-    <div class="panes">
-      <div class="editor">
-        <textarea
-          ref="textarea"
-          v-model="text"
-          :disabled="busy"
-          @input="onEditorInput"
-          @keydown="onEditorKeydown"
-        ></textarea>
-        <ul v-if="completion.open" class="completion">
-          <li v-for="item in completion.items" :key="item.path" @mousedown.prevent="pickCompletion(item)">
-            [[{{ completionInsertText(item) }}]]
+    <div class="notes-layout">
+      <aside v-if="!compact && listOpen" id="note-list" class="note-list" aria-label="노트 목록">
+        <label class="eyebrow" for="note-filter">Notes</label>
+        <input id="note-filter" :disabled="busy" v-model="searchQ" placeholder="검색 (제목/파일/본문)" @input="onSearch" />
+        <div v-if="searchResults.length" class="search-results">
+          <button v-for="r in searchResults" :key="r.path" class="list-button result" :disabled="busy" :title="r.name" @click="selectNote(r)">
+            <b>{{ r.name }}</b><small>{{ r.snippet }}</small>
+          </button>
+        </div>
+        <div class="new-note">
+          <input aria-label="새 노트 이름" :disabled="busy" v-model="newNoteName" placeholder="새 노트 (예: folder/이름)" @keyup.enter="createNote" />
+          <button :disabled="busy" @click="createNote">+ 노트</button>
+        </div>
+        <ul class="notes">
+          <li v-for="n in notes" :key="n.path">
+            <button class="list-button" :class="{ active: current?.path === n.path }" :aria-pressed="current?.path === n.path" :disabled="busy" :title="n.path" @click="selectNote(n)">{{ n.path }}</button>
           </li>
         </ul>
-      </div>
-      <div class="preview" v-html="rendered" @click="onPreviewClick"></div>
+        <p v-if="!notes.length" class="empty-state">아직 노트가 없습니다.</p>
+      </aside>
+      <section class="workspace-canvas" v-if="current" :aria-busy="busy">
+        <div class="bar toolbar">
+          <b class="note-path" :title="current.path">{{ current.path }}</b>
+          <span class="save status-chip" :data-state="saveState" role="status">
+            {{ saveState === "saving" ? "저장 중…" : saveState === "dirty" ? "변경됨" : saveState === "error" ? "저장 실패: " + saveError : "저장됨" }}
+          </span>
+          <button :disabled="busy" v-if="saveState === 'error'" data-state="error" @click="retrySave">다시 저장</button>
+        </div>
+        <p v-if="status" class="error" role="alert">{{ status }}</p>
+        <div class="panes">
+          <div class="editor">
+            <label class="eyebrow" for="note-editor">Markdown</label>
+            <textarea id="note-editor" ref="textarea" v-model="text" :disabled="busy" :aria-invalid="saveState === 'error'" @input="onEditorInput" @keydown="onEditorKeydown"></textarea>
+            <ul v-if="completion.open" class="completion card" aria-label="Wikilink 자동완성">
+              <li v-for="item in completion.items" :key="item.path">
+                <button class="list-button" :disabled="busy" :title="completionInsertText(item)" @mousedown.prevent @click="pickCompletion(item)">[[{{ completionInsertText(item) }}]]</button>
+              </li>
+            </ul>
+          </div>
+          <div class="preview-pane">
+            <span class="eyebrow">Preview</span>
+            <div class="preview">
+              <section v-if="previewParts.properties !== null" class="properties" aria-label="노트 속성">
+                <span class="eyebrow">속성</span>
+                <pre>{{ previewParts.properties }}</pre>
+              </section>
+              <div class="prose" v-html="rendered" @click="onPreviewClick"></div>
+            </div>
+          </div>
+        </div>
+        <details v-if="!compact && backlinks.length" class="backlinks">
+          <summary>Backlinks · {{ backlinks.length }}</summary>
+          <ul>
+            <li v-for="b in backlinks" :key="b.path"><button class="link-button" :disabled="busy" :title="b.name" @click="selectNote(b)">[[{{ b.name }}]]</button></li>
+          </ul>
+        </details>
+      </section>
+      <section v-else class="empty empty-state">노트를 선택하세요.</section>
     </div>
-  </section>
-  <section v-else class="empty">노트를 선택하세요.</section>
+  </div>
 </template>
 
 <style scoped>
-aside { width: 260px; padding: 8px; border-right: 1px solid #ddd; overflow: auto; }
-.workspace-canvas { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.bar { display: flex; gap: 8px; justify-content: space-between; padding: 6px 12px; background: #f3f3f3; }
-.panes { display: flex; flex: 1; min-height: 0; }
-.editor, .preview { flex: 1; min-width: 0; }
-.editor textarea { width: 100%; height: 100%; border: none; outline: none; padding: 12px; font-family: monospace; box-sizing: border-box; resize: none; }
-.preview { padding: 12px; overflow: auto; border-left: 1px solid #ddd; }
-.editor { position: relative; display: flex; }
-.completion { position: absolute; bottom: 10%; left: 12px; background: white; border: 1px solid #ccc; list-style: none; padding: 4px; margin: 0; max-height: 200px; overflow: auto; }
-.completion li { padding: 2px 8px; cursor: pointer; }
-.completion li:hover { background: #eee; }
-.notes li { cursor: pointer; padding: 2px 4px; }
-.notes li.active { background: #e0e7ff; }
-.notes li.disabled { opacity: 0.5; pointer-events: none; }
-.save.error { color: #b91c1c; }
-.search-results .result { cursor: pointer; padding: 4px; border-bottom: 1px solid #eee; }
-.link { cursor: pointer; color: #2563eb; }
-.status { margin: 4px 12px; color: #b91c1c; }
-.empty { flex: 1; display: grid; place-items: center; color: #888; }
+.notes-view { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: clip; }
+.list-toggle { padding: var(--space-xs) var(--space-md); border-bottom: var(--rule-hair); }
+.list-toggle button { min-height: 32px; font-size: var(--text-xs); }
+.notes-layout { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.note-list { width: 248px; flex-shrink: 0; padding: var(--space-md); border-right: var(--rule-hair); overflow: auto; }
+.note-list > input { width: 100%; margin: var(--space-xs) 0 var(--space-md); }
+.new-note { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.new-note input { width: 100%; }
+ul { list-style: none; padding: 0; }
+.notes { display: grid; gap: var(--space-2xs); }
+.result b, .result small { display: block; overflow: hidden; text-overflow: ellipsis; }
+.result small { color: var(--color-ink-2); }
+.workspace-canvas { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.bar { padding: var(--space-md) var(--space-lg); border-bottom: var(--rule-hair); }
+.note-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 80px; }
+.save { max-width: 100%; overflow-wrap: anywhere; }
+.error { margin: var(--space-sm); }
+.panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); flex: 1; min-height: 0; }
+.editor, .preview-pane { min-width: 0; min-height: 0; padding: var(--space-md) var(--space-lg); }
+.editor { position: relative; display: flex; flex-direction: column; gap: var(--space-sm); }
+.editor textarea { flex: 1; width: 100%; min-height: 200px; padding: var(--space-sm); font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.8; resize: none; background: var(--color-paper-0); }
+.preview-pane { display: flex; flex-direction: column; border-left: var(--rule-hair); }
+.preview { overflow: auto; flex: 1; }
+.properties { margin-top: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--color-paper-2); border-radius: var(--radius-md); }
+.properties pre { margin: var(--space-xs) 0 0; padding: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.completion { position: absolute; bottom: 10%; left: var(--space-lg); right: var(--space-lg); margin: 0; padding: var(--space-xs); max-height: 200px; overflow: auto; background: var(--color-paper-0); }
+.backlinks { padding: var(--space-xs) var(--space-lg); border-top: var(--rule-hair); max-height: 160px; overflow: auto; }
+.backlinks .link-button { max-width: 100%; }
+.empty { flex: 1; display: grid; place-items: center; }
+.compact .panes { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+.compact .preview-pane { border-left: 0; border-top: var(--rule-hair); }
+@media (max-width: 1000px) { .panes { grid-template-columns: minmax(0, 1fr); overflow: auto; } .preview-pane { border-left: 0; border-top: var(--rule-hair); } .preview { overflow: visible; } }
+@media (max-width: 768px) { .notes-layout { flex-direction: column; overflow: auto; } .note-list { width: 100%; max-height: 240px; flex-shrink: 0; border-right: 0; border-bottom: var(--rule-hair); } .workspace-canvas { flex: none; min-height: 520px; } .editor, .preview-pane, .bar { padding: var(--space-md); } .preview { overflow: visible; } }
 </style>
