@@ -51,7 +51,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   status: string;
-  citations: string[] | null;
+  citations: Pick<ContextItem, "label" | "kind" | "path" | "pages">[] | null;
   context: ContextItem[] | null;
   created_at: string;
 }

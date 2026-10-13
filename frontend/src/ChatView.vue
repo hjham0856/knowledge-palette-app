@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import MarkdownIt from "markdown-it";
 import { api, ChatMessage, ChatStatus, Conversation, ContextItem } from "./api";
+
+const props = defineProps<{ busy: boolean; splitOn: boolean }>();
 
 const emit = defineEmits<{
   (e: "open-note", path: string): void;
@@ -14,7 +16,7 @@ const currentId = ref<number | null>(null);
 const messages = ref<ChatMessage[]>([]);
 const draft = ref("");
 const includeSources = ref(false);
-const splitOn = ref(false);
+const loading = ref(false);
 const streaming = ref(false);
 const streamText = ref("");
 const streamContexts = ref<ContextItem[]>([]);
@@ -24,6 +26,9 @@ const streamError = ref("");
 const listError = ref("");
 const sourceModal = ref<ContextItem | null>(null);
 let controller: AbortController | null = null;
+let activeSend: Promise<void> | null = null;
+// 취소 직후 서버의 저장이 끝나기 전에도 해당 대화의 부분 응답을 다시 보여준다.
+const pendingMessages = new Map<number, ChatMessage[]>();
 
 // 인용 라벨([N1] 등)을 링크로 바꾸는 마크다운 확장. 컨텍스트에 실제 존재하는 라벨만 클릭 가능하게 한다.
 function makeMd(contextLabels: Set<string>) {
@@ -62,30 +67,49 @@ async function loadConversations() {
 }
 
 async function selectConversation(id: number) {
-  if (streaming.value || currentId.value === id) return;
-  currentId.value = id;
+  if (loading.value || props.busy || currentId.value === id) return;
+  loading.value = true;
+  await cancelActiveStream();
   try {
     const c = await api.getConversation(id);
-    if (currentId.value === id) messages.value = c.messages;
+    currentId.value = id;
+    const pending = pendingMessages.get(id);
+    if (pending && c.messages[c.messages.length - 1]?.role !== "assistant") {
+      messages.value = pending;
+    } else {
+      messages.value = c.messages;
+      pendingMessages.delete(id);
+    }
+    streamNotesState.value = "";
+    streamSourceState.value = "";
+    streamError.value = "";
   } catch (e: any) {
     listError.value = e.message;
+  } finally {
+    loading.value = false;
   }
 }
 
 async function newConversation() {
-  if (streaming.value) return;
+  if (loading.value || props.busy) return;
+  loading.value = true;
+  await cancelActiveStream();
   try {
     const c = await api.createConversation("");
     currentId.value = c.id;
     messages.value = [];
+    streamNotesState.value = "";
+    streamSourceState.value = "";
+    streamError.value = "";
     await loadConversations();
   } catch (e: any) {
     listError.value = e.message;
+  } finally {
+    loading.value = false;
   }
 }
 
 function setSplit(v: boolean) {
-  splitOn.value = v;
   emit("split-change", v);
 }
 
@@ -105,19 +129,26 @@ function handleSseEvent(block: string) {
     return;
   }
   if (event === "delta") streamText.value += payload.text ?? "";
-  else if (event === "citations") {
+  else if (event === "context") {
     streamContexts.value = payload.contexts ?? [];
     streamNotesState.value = payload.notes_state ?? "";
     streamSourceState.value = payload.source_state ?? "";
   } else if (event === "error") streamError.value = payload.detail ?? "오류가 발생했습니다.";
-  else if (event === "done") {
-    /* 완료 시점의 본문은 DB에 저장된 버전을 다시 읽는다 */
-  }
+
 }
 
 async function send() {
+  if (activeSend || loading.value || props.busy || !status.value?.configured) return;
+  activeSend = sendMessage();
+  try { await activeSend; } finally { activeSend = null; }
+}
+
+async function sendMessage() {
   const text = draft.value.trim();
   if (!text || streaming.value) return;
+  streaming.value = true;
+  const requestController = new AbortController();
+  controller = requestController;
   if (!currentId.value) {
     try {
       const c = await api.createConversation("");
@@ -125,23 +156,32 @@ async function send() {
       await loadConversations();
     } catch (e: any) {
       streamError.value = e.message;
+      streaming.value = false;
+      controller = null;
       return;
     }
   }
+  if (requestController.signal.aborted) {
+    streaming.value = false;
+    controller = null;
+    return;
+  }
   const convId = currentId.value;
-  messages.value = [...messages.value, { id: -1, role: "user", content: text, status: "completed", citations: null, context: null, created_at: "" }];
+  messages.value = [...messages.value, { id: -1, role: "user", content: text, status: "complete", citations: null, context: null, created_at: "" }];
   draft.value = "";
   streaming.value = true;
   streamText.value = "";
   streamContexts.value = [];
   streamError.value = "";
-  controller = new AbortController();
+  streamNotesState.value = "preparing";
+  streamSourceState.value = "preparing";
+  let terminalStatus = "interrupted";
   try {
     const res = await fetch(`/api/conversations/${convId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: text, include_sources: includeSources.value }),
-      signal: controller.signal,
+      signal: requestController.signal,
     });
     if (!res.ok || !res.body) {
       const d = await res.json().catch(() => ({}));
@@ -161,6 +201,8 @@ async function send() {
         const sepLen = /^(?:\r\n\r\n|\n\n|\r\r)/.exec(buf.slice(idx))?.[0].length ?? 2;
         buf = buf.slice(idx + sepLen);
         handleSseEvent(block);
+        if (block.startsWith("event: done")) terminalStatus = "complete";
+        if (block.startsWith("event: error")) terminalStatus = JSON.parse(block.split("data:")[1]).status ?? "error";
       }
     }
     buf += decoder.decode();
@@ -168,17 +210,25 @@ async function send() {
   } catch (e: any) {
     if (e?.name !== "AbortError") streamError.value = e?.message ?? "요청 실패";
   } finally {
+    const partialMessage: ChatMessage = {
+      id: -2, role: "assistant", content: streamText.value,
+      status: requestController.signal.aborted ? "interrupted" : terminalStatus,
+      citations: streamContexts.value.filter((c) => streamText.value.includes(`[${c.label}]`)),
+      context: streamContexts.value, created_at: "",
+    };
+    // 중단 직후 DB 보존이 아직 끝나지 않은 경우에도 화면의 부분 응답을 유지한다.
+    try {
+      const c = await api.getConversation(convId);
+      const last = c.messages[c.messages.length - 1];
+      messages.value = last?.role === "assistant" ? c.messages : [...c.messages, partialMessage];
+      if (last?.role !== "assistant") pendingMessages.set(convId, messages.value);
+      else pendingMessages.delete(convId);
+    } catch {
+      messages.value = [...messages.value, partialMessage];
+      pendingMessages.set(convId, messages.value);
+    }
     streaming.value = false;
     controller = null;
-    // 저장된 최종 상태(완료/중단/실패 포함)를 다시 읽어 화면과 DB를 일치시킨다.
-    if (currentId.value === convId) {
-      try {
-        const c = await api.getConversation(convId);
-        messages.value = c.messages;
-      } catch {
-        /* 목록 갱신 실패는 다음 선택에서 복구된다 */
-      }
-    }
     streamText.value = "";
     await loadConversations();
   }
@@ -188,9 +238,9 @@ function stop() {
   controller?.abort();
 }
 
-function cancelActiveStream() {
-  // 워크스페이스/모드 전환으로 화면이 잠기기 전에 응답 생성을 중단한다.
-  if (controller) controller.abort();
+async function cancelActiveStream() {
+  controller?.abort();
+  await activeSend;
 }
 
 function contextLabels(m: ChatMessage): ContextItem[] {
@@ -199,7 +249,7 @@ function contextLabels(m: ChatMessage): ContextItem[] {
 
 function citedSet(m: ChatMessage): Set<string> {
   const s = new Set<string>();
-  for (const c of m.citations ?? []) s.add(String(c).replace(/[\[\]]/g, ""));
+  for (const c of m.citations ?? []) s.add(c.label);
   return s;
 }
 
@@ -229,7 +279,8 @@ function onStreamClick(e: MouseEvent) {
 }
 
 onMounted(async () => {
-  status.value = await api.chatStatus();
+  try { status.value = await api.chatStatus(); }
+  catch { listError.value = "Provider 설정 상태를 불러오지 못했습니다."; }
   await loadConversations();
 });
 
@@ -242,8 +293,8 @@ defineExpose({ cancelActiveStream });
 
 <template>
   <div class="chat-view">
-    <nav class="convs">
-      <button :disabled="streaming" @click="newConversation">+ 새 대화</button>
+    <nav v-if="status?.configured" class="convs">
+      <button :disabled="loading || busy" @click="newConversation">+ 새 대화</button>
       <ul>
         <li v-for="c in conversations" :key="c.id" :class="{ active: c.id === currentId }" @click="selectConversation(c.id)">
           {{ c.title || "새 대화" }}
@@ -253,10 +304,10 @@ defineExpose({ cancelActiveStream });
     </nav>
 
     <section class="main">
-      <div class="bar">
+      <div v-if="status?.configured" class="bar">
         <b>Chat</b>
         <label class="toggle"><input type="checkbox" v-model="includeSources" /> Sources 근거 포함</label>
-        <label class="toggle"><input type="checkbox" :checked="splitOn" @change="setSplit(($event.target as HTMLInputElement).checked)" /> 노트 함께 보기</label>
+        <label class="toggle"><input type="checkbox" :disabled="busy" :checked="splitOn" @change="setSplit(($event.target as HTMLInputElement).checked)" /> 노트 함께 보기</label>
       </div>
 
       <div v-if="status && !status.configured" class="not-configured">
@@ -271,13 +322,15 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
         모델: <b>{{ status.model }}</b> · 호스트: {{ status.base_host }}
       </div>
 
-      <div class="messages">
+      <p v-if="!status && listError" class="error">{{ listError }}</p>
+      <div v-if="status?.configured" class="messages">
+        <p v-if="streamNotesState" class="state">Notes: {{ streamNotesState }} · Sources: {{ streamSourceState }}</p>
         <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
           <div class="bubble">
             <div v-if="m.role === 'assistant'" class="content" v-html="renderMessage(m)" @click="onMessageClick($event, m)"></div>
             <div v-else class="content">{{ m.content }}</div>
             <p v-if="m.status === 'interrupted'" class="warn">응답이 중단되었습니다 (부분 내용 보존).</p>
-            <p v-if="m.status === 'failed'" class="warn">응답 생성에 실패했습니다. 잠시 후 다시 시도하세요.</p>
+            <p v-if="m.status === 'error'" class="warn">응답 생성에 실패했습니다. 잠시 후 다시 시도하세요.</p>
           </div>
           <details v-if="m.role === 'assistant' && (m.context ?? []).length" class="refs">
             <summary>참고 자료 {{ (m.context ?? []).length }}건</summary>
@@ -293,7 +346,7 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
 
         <div v-if="streaming || streamText" class="msg assistant">
           <div class="bubble">
-            <div class="content" v-html="renderMessage({ content: streamText, context: streamContexts, citations: streamContexts.map((c) => '[' + c.label + ']') } as any)" @click="onStreamClick"></div>
+            <div class="content" v-html="renderMessage({ content: streamText, context: streamContexts } as ChatMessage)" @click="onStreamClick"></div>
             <p v-if="streaming" class="hint">응답 생성 중…</p>
           </div>
           <details v-if="streamContexts.length" class="refs" open>
@@ -311,10 +364,10 @@ KP_CHAT_MODEL=사용-모델-이름</pre>
         <p v-if="streamError" class="error">{{ streamError }}</p>
       </div>
 
-      <div class="composer">
-        <textarea v-model="draft" placeholder="질문을 입력하세요" :disabled="streaming" @keydown.enter.meta.prevent="send" @keydown.enter.ctrl.prevent="send" />
+      <div v-if="status?.configured" class="composer">
+        <textarea v-model="draft" placeholder="질문을 입력하세요" :disabled="streaming || loading || busy" @keydown.enter.meta.prevent="send" @keydown.enter.ctrl.prevent="send" />
         <button v-if="streaming" @click="stop">중지</button>
-        <button v-else @click="send">보내기</button>
+        <button v-else :disabled="loading || busy" @click="send">보내기</button>
       </div>
     </section>
 

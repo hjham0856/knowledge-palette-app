@@ -5,8 +5,11 @@ import { api, NoteMeta } from "./api";
 
 const props = defineProps<{
   openRequest: { path: string; nonce: number } | null;
+  navigationBusy?: boolean;
   compact?: boolean; // split 모드에서는 노트 목록 대신 편집 캔버스만 보여준다.
 }>();
+
+const emit = defineEmits<{ (e: "busy-change", busy: boolean): void }>();
 
 const md = new MarkdownIt({ html: false, linkify: true });
 
@@ -45,7 +48,9 @@ const searchResults = ref<{ path: string; name: string; in_title: boolean; snipp
 const backlinks = ref<NoteMeta[]>([]);
 const newNoteName = ref("");
 const status = ref("");
-const busy = ref(false);
+const localBusy = ref(false);
+const busy = computed(() => localBusy.value || props.navigationBusy);
+watch(localBusy, (value) => emit("busy-change", value), { flush: "sync" });
 
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const completion = ref<{ open: boolean; items: { name: string; path: string; ambiguous: boolean }[]; start: number }>({
@@ -69,7 +74,7 @@ async function refreshNotes() {
 
 async function selectNote(note: NoteMeta) {
   if (busy.value || current.value?.path === note.path) return;
-  busy.value = true; // flush와 로드가 끝날 때까지 잠근다.
+  localBusy.value = true; // flush와 로드가 끝날 때까지 잠근다.
   const seq = ++navSeq;
   try {
     const flushed = await flushSave();
@@ -94,14 +99,14 @@ async function selectNote(note: NoteMeta) {
       if (seq === navSeq) status.value = `노트 로드 실패: ${e.message} (현재 노트 유지)`;
     }
   } finally {
-    busy.value = false;
+    localBusy.value = false;
   }
 }
 
 async function createNote() {
   const name = newNoteName.value.trim();
   if (!name || busy.value) return;
-  busy.value = true; // 생성과 뒤따르는 로드까지 한 작업으로 잠근다.
+  localBusy.value = true; // 생성과 뒤따르는 로드까지 한 작업으로 잠근다.
   try {
     const flushed = await flushSave();
     if (!flushed) {
@@ -123,7 +128,7 @@ async function createNote() {
       status.value = `노트 생성 실패: ${e.message}`;
     }
   } finally {
-    busy.value = false;
+    localBusy.value = false;
   }
 }
 
@@ -302,6 +307,7 @@ function onEditorKeydown(e: KeyboardEvent) {
 }
 
 function onSearch() {
+  if (busy.value) return;
   if (!searchQ.value.trim()) {
     searchResults.value = [];
     return;
@@ -326,7 +332,7 @@ defineExpose({ flushSave, isDirty, refreshNotes });
 
 <template>
   <aside v-if="!compact">
-    <input v-model="searchQ" placeholder="검색 (제목/파일/본문)" @input="onSearch" />
+    <input :disabled="busy" v-model="searchQ" placeholder="검색 (제목/파일/본문)" @input="onSearch" />
     <div v-if="searchResults.length" class="search-results">
       <div v-for="r in searchResults" :key="r.path" class="result" @click="selectNote(r)">
         <b>{{ r.name }}</b>
@@ -334,7 +340,7 @@ defineExpose({ flushSave, isDirty, refreshNotes });
       </div>
     </div>
 
-    <input v-model="newNoteName" placeholder="새 노트 (예: folder/이름)" @keyup.enter="createNote" />
+    <input :disabled="busy" v-model="newNoteName" placeholder="새 노트 (예: folder/이름)" @keyup.enter="createNote" />
     <button :disabled="busy" @click="createNote">+ 노트</button>
 
     <ul class="notes">
@@ -355,7 +361,7 @@ defineExpose({ flushSave, isDirty, refreshNotes });
       <span class="save" :class="saveState">
         {{ saveState === "saving" ? "저장 중…" : saveState === "dirty" ? "변경됨" : saveState === "error" ? "저장 실패: " + saveError : "저장됨" }}
       </span>
-      <button v-if="saveState === 'error'" @click="retrySave">다시 저장</button>
+      <button :disabled="busy" v-if="saveState === 'error'" @click="retrySave">다시 저장</button>
     </div>
     <p v-if="status" class="status">{{ status }}</p>
     <div class="panes">

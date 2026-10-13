@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import aclosing
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from . import chat, db, indexer, llm, retrieval
@@ -246,8 +248,8 @@ def conversations():
     ws = current()
     try:
         return {"conversations": chat.list_conversations(str(ws.root))}
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="대화 DB 사용 불가")
 
 
 @app.post("/api/conversations")
@@ -255,8 +257,8 @@ def conversation_create(body: ConversationCreate):
     ws = current()
     try:
         return chat.create_conversation(str(ws.root), body.title)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="대화 DB 사용 불가")
 
 
 @app.get("/api/conversations/{conv_id}")
@@ -264,8 +266,8 @@ def conversation_get(conv_id: int):
     ws = current()
     try:
         conv = chat.get_conversation(str(ws.root), conv_id)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="대화 DB 사용 불가")
     if conv is None:
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
     return conv
@@ -279,9 +281,9 @@ def _sse(event: str, payload: dict) -> str:
 async def conversation_message(conv_id: int, body: ChatMessageIn, request: Request):
     ws = current()
     try:
-        conv = chat.get_conversation(str(ws.root), conv_id)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"DB 사용 불가: {e}")
+        conv = await run_in_threadpool(chat.get_conversation, str(ws.root), conv_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="대화 DB 사용 불가")
     if conv is None:
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
     content = body.content.strip()
@@ -292,13 +294,17 @@ async def conversation_message(conv_id: int, body: ChatMessageIn, request: Reque
 
     async def stream():
         try:
-            async for event, payload in chat.generate(conv_id, ws, content, body.include_sources):
-                yield _sse(event, payload)
+            async with aclosing(chat.generate(conv_id, ws, content, body.include_sources)) as events:
+                async for event, payload in events:
+                    yield _sse(event, payload)
         except asyncio.CancelledError:
             # 클라이언트 중단으로 generate가 부분 텍스트를 저장한 뒤 올라온 취소다.
             return
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.get("/api/search/sources")
 def search_sources(q: str = Query(...), k: int = Query(10)):
     ws = current()
     if not db.available():

@@ -44,7 +44,7 @@ npm run dev
 ## 테스트 / 검증
 
 ```bash
-cd backend && uv run pytest -q
+cd backend && uv run --env-file ../.env pytest -q
 cd ../frontend && npm run typecheck && npm run build
 ```
 
@@ -94,3 +94,23 @@ cd ../frontend && npm run typecheck && npm run build
 - 렌더링된 Markdown 미리보기 (원시 HTML 비활성화)
 
 정책 및 세부 동작은 `docs/knowledge-palette-architecture.md`의 Phase 1 결정 사항 참고.
+
+## Phase 3 — Chat
+
+루트 `.env`에 `.env.example`의 `KP_LLM_BASE_URL`, `KP_CHAT_MODEL`을 지정한 뒤 backend를 다시 시작한다.
+Ollama는 `http://127.0.0.1:11434/v1`과 `qwen2.5:7b-instruct`를 사용하고 API 키는 비워 둔다.
+OpenAI를 사용하려면 주소를 `https://api.openai.com/v1`, `KP_CHAT_MODEL`을 해당 계정에서 사용할 수 있는 모델,
+`KP_LLM_API_KEY`를 개인 API 키로 지정한다. 다른 OpenAI 호환 서비스도 제공받은 `/v1` 주소·모델·키로 설정한다.
+`KP_KNOWLEDGE_MODEL`은 비우면 Chat 모델을 사용한다. 키는 `.env`에만 두고 공유하지 않는다.
+
+1. Workspace를 연 뒤 Chat에서 새 대화를 만들거나 질문을 보낸다. 답변은 생성되는 대로 표시된다.
+2. 기존 Notes를 hybrid 검색(단어+의미)과 MMR(비슷한 근거의 반복 줄이기)로 찾는다. `Sources 근거 포함`을 켜면 자료도 검색한다.
+3. 답변의 `[N1]` 같은 인용을 클릭하면 Note가 열린다. `[S1]`은 Source 경로·페이지를 표시한다.
+4. 기본은 Chat 전체 화면이다. `노트 함께 보기`를 켤 때만 Chat과 Note를 나란히 표시한다.
+5. 모드를 바꿔도 Note 초안과 Chat 응답은 유지된다. Note 저장 실패 시 전환을 중단한다.
+   대화를 바꾸거나 중지하면 이전 생성은 취소되고 부분 응답은 `interrupted`로 보존된다.
+
+Chat은 Markdown을 수정하지 않는다. 대화·메시지·인용은 PostgreSQL에 Workspace별로 보존한다.
+검색 준비 실패는 화면에 표시하며 근거 없이 대화를 계속한다. 오래된 근거는 제외한다.
+빈 응답과 형식 오류는 `error`, 연결 끊김이나 정상 종료가 아닌 응답은 `interrupted`이며 `complete`와 구분한다.
+Provider를 설정하지 않아도 Notes/Search/Sources는 사용할 수 있다.
