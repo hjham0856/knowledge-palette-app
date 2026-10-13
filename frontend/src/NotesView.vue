@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import MarkdownIt from "markdown-it";
 import { api, NoteMeta } from "./api";
+import RelatedNotes from "./RelatedNotes.vue";
 
 const props = defineProps<{
   openRequest: { path: string; nonce: number } | null;
@@ -202,6 +203,16 @@ function retrySave() {
   if (busy.value) return;
   saveState.value = "dirty";
   flushSave();
+}
+
+async function prepareRelatedLoad(): Promise<boolean> {
+  if (busy.value) return false;
+  localBusy.value = true;
+  try {
+    return await flushSave();
+  } finally {
+    localBusy.value = false;
+  }
 }
 
 async function refreshBacklinks(path: string) {
@@ -406,6 +417,7 @@ defineExpose({ flushSave, isDirty, refreshNotes });
             <li v-for="b in backlinks" :key="b.path"><button class="link-button" :disabled="busy" :title="b.name" @click="selectNote(b)">[[{{ b.name }}]]</button></li>
           </ul>
         </details>
+        <RelatedNotes v-if="!compact" :key="current.path" :path="current.path" :saved-content="savedText" :dirty="text !== savedText" :busy="busy" :prepare-load="prepareRelatedLoad" @open-note="selectNote" />
       </section>
       <section v-else class="empty empty-state">노트를 선택하세요.</section>
     </div>

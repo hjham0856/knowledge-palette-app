@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from . import chat, db, indexer, llm, retrieval
+from . import chat, db, indexer, llm, related, retrieval
 from .workspace import Workspace
 
 app = FastAPI(title="Knowledge Palette")
@@ -161,6 +161,21 @@ def backlinks(path: str = Query(...)):
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid path")
     return {"backlinks": ws.backlinks(path)}
+
+
+@app.get("/api/notes/related")
+def related_notes(path: str = Query(...)):
+    ws = current()
+    try:
+        note = ws.safe_note_path(path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid path")
+    if not note.is_file():
+        raise HTTPException(status_code=404, detail="note not found")
+    try:
+        return related.find_related(ws, path)
+    except Exception:
+        raise HTTPException(status_code=503, detail="의미 검색 비활성: PostgreSQL/pgvector와 임베딩 모델, Note 색인 상태를 확인해 주세요.")
 
 
 @app.get("/api/links/resolve")

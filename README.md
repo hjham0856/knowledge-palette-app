@@ -118,3 +118,11 @@ Chat은 Markdown을 수정하지 않는다. 대화·메시지·인용은 Postgre
 검색 준비 실패는 화면에 표시하며 근거 없이 대화를 계속한다. 오래된 근거는 제외한다.
 빈 응답과 형식 오류는 `error`, 연결 끊김이나 정상 종료가 아닌 응답은 `interrupted`이며 `complete`와 구분한다.
 Provider를 설정하지 않아도 Notes/Search/Sources는 사용할 수 있다.
+
+## Related Notes
+
+Notes 화면에서 `Related Notes · 관련 노트`를 펼치면 보류 중인 편집을 저장하고,
+frontmatter를 제외한 본문 앞 1,200자로 Notes만 재색인·hybrid+MMR 검색한다.
+자기 자신을 제외한 최대 8개 Note를 보여주며 나가는 링크/Backlink와 재색인 필요 상태를 표시한다.
+결과를 클릭하면 저장 완료 후 이동한다. 본문 변경 후에는 `다시 찾기`로 갱신한다.
+DB·임베딩을 사용할 수 없으면 `의미 검색 비활성` 오류를 보여준다. LLM 설정은 필요 없다.
