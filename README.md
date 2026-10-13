@@ -119,6 +119,29 @@ Chat은 Markdown을 수정하지 않는다. 대화·메시지·인용은 Postgre
 빈 응답과 형식 오류는 `error`, 연결 끊김이나 정상 종료가 아닌 응답은 `interrupted`이며 `complete`와 구분한다.
 Provider를 설정하지 않아도 Notes/Search/Sources는 사용할 수 있다.
 
+## Phase 6-A — Local Graph
+
+Notes에서 Note를 선택한 뒤 상단 **Graph**를 누르면 현재 Note와 직접 연결된 Note(1-hop)가 보인다.
+실선 화살표는 나가는 wikilink, 점선 화살표는 들어오는 backlink, 굵은 양끝 화살표는 양방향 연결이다.
+노드나 아래 경로 목록을 누르면 Note 선택과 그래프 중심이 함께 이동한다. 보류 중인 저장이 실패하면 이동하지 않는다.
+전체 이름은 경로 목록에서 확인하고, 좁은 화면이나 연결이 많은 그래프는 좌우로 스크롤한다.
+missing(대상 없음)·ambiguous(파일명 중복)는 별도 목록에 표시하며 임의의 Note로 연결하지 않는다.
+DB·임베딩 없이 Markdown 원본에서 계산한다. Related Notes, Base Lite, Global Graph는 이 단계에 포함하지 않는다.
+
+## Related Notes
+
+Notes 화면에서 `Related Notes · 관련 노트`를 펼치면 보류 중인 편집을 저장하고,
+frontmatter를 제외한 본문 앞 1,200자로 Notes만 재색인·hybrid+MMR 검색한다.
+자기 자신을 제외한 최대 8개 Note를 보여주며 나가는 링크/Backlink와 재색인 필요 상태를 표시한다.
+결과를 클릭하면 저장 완료 후 이동한다. 본문 변경 후에는 `다시 찾기`로 갱신한다.
+DB·임베딩을 사용할 수 없으면 `의미 검색 비활성` 오류를 보여준다. LLM 설정은 필요 없다.
+
+## Phase 6-C — Base Lite
+
+Workspace를 연 뒤 **Base**에서 Note의 YAML frontmatter를 표/목록으로 모아 본다. 데이터에 있는 필드로 포함/같음/존재 필터, 오름/내림 정렬, 그룹을 선택한다. 리스트 값은 항목별로 필터링하고 각 값의 그룹에 표시한다. 행을 누르면 기존 저장 대기 규칙을 거쳐 Note를 연다.
+
+DB·임베딩은 필요 없다. 원본은 수정하지 않으며 잘못된 YAML은 Note별 오류로 표시한다. 최신 파일을 읽으려면 새로고침하거나 Base를 다시 연다. 쿼리 문법·Dataview 호환은 지원하지 않는다.
+
 
 ## Phase 4 — Knowledge Update
 

@@ -11,8 +11,10 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from . import chat, db, indexer, knowledge, llm, retrieval
+from . import chat, db, indexer, knowledge, llm, related, retrieval
 from .workspace import Workspace
+from .graph import local_graph
+from .base import frontmatter_notes
 
 app = FastAPI(title="Knowledge Palette")
 
@@ -107,6 +109,11 @@ def read_note(path: str = Query(...)):
     return {"path": path, "content": p.read_text(encoding="utf-8")}
 
 
+@app.get("/api/notes/frontmatter")
+def note_frontmatter():
+    return {"notes": frontmatter_notes(current())}
+
+
 @app.post("/api/notes")
 def create_note(body: NoteCreate):
     ws = current()
@@ -163,6 +170,21 @@ def backlinks(path: str = Query(...)):
     return {"backlinks": ws.backlinks(path)}
 
 
+@app.get("/api/notes/related")
+def related_notes(path: str = Query(...)):
+    ws = current()
+    try:
+        note = ws.safe_note_path(path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid path")
+    if not note.is_file():
+        raise HTTPException(status_code=404, detail="note not found")
+    try:
+        return related.find_related(ws, path)
+    except Exception:
+        raise HTTPException(status_code=503, detail="의미 검색 비활성: PostgreSQL/pgvector와 임베딩 모델, Note 색인 상태를 확인해 주세요.")
+
+
 @app.get("/api/links/resolve")
 def resolve(target: str = Query(...)):
     ws = current()
@@ -171,6 +193,16 @@ def resolve(target: str = Query(...)):
         "status": status,
         "matches": [str(p.relative_to(ws.root / "notes")) for p in matches],
     }
+
+
+@app.get("/api/notes/graph")
+def graph(path: str = Query(...)):
+    try:
+        return local_graph(current(), path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid path")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="note not found")
 
 
 @app.get("/api/notes/names")
