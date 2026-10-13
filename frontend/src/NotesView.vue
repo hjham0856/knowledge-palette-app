@@ -342,7 +342,7 @@ onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
 });
 
-defineExpose({ flushSave, isDirty, refreshNotes });
+defineExpose({ flushSave, isDirty, refreshNotes, current, selectNote });
 </script>
 
 <template>

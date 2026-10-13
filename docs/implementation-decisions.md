@@ -85,5 +85,10 @@
 ## Phase 6 — Knowledge Navigation
 
 - **Local Graph는 1-hop(나가는 링크 + backlink)만 보여주고, 라이브러리 없이 SVG 방사형 배치로 그린다.** 문서가 Local Graph부터 시작하라고 했다. 1-hop 규모에서는 force 레이아웃 라이브러리가 필요 없다.
+  - `GET /api/notes/graph?path=`는 Markdown 원본과 기존 Workspace 링크 해석·backlink 계산을 사용한다. 노드는 Note 경로로 식별하고 중심을 먼저 반환한다. 이웃 간 연결이나 2-hop은 포함하지 않는다.
+  - 같은 이웃으로 향한 링크는 하나로 합친다. `source`/`target`은 실제 링크 방향이며, 양방향이면 중심→이웃을 대표 방향으로 두고 `bidirectional: true`, `direction: both`를 함께 반환한다. 자기 링크는 별도 이웃이나 연결선으로 표시하지 않는다.
+  - missing·ambiguous는 `unresolved`에 대상·상태·후보 경로를 표시한다. 미해결 후보를 실제 연결로 보여주면 다른 Note를 임의 선택한 것처럼 보이므로 그래프 노드에 넣지 않는다.
+  - Graph는 Notes의 선택 상태를 사용하고 기존 `selectNote`로 이동한다. 선택 함수가 저장 flush와 파일 로드를 마친 뒤에만 중심이 바뀐다. Notes로 돌아가면 같은 Note를 편집할 수 있다.
+  - SVG는 글자 크기를 유지하며 연결 수에 따라 원을 넓힌다. 좁은 화면은 스크롤과 전체 경로 목록을 제공한다. 키보드 Enter/Space로도 노드를 선택할 수 있다. 실선·점선·굵은 선과 화살표·범례를 함께 사용한다.
 - **Related Notes는 현재 Note 본문으로 기존 hybrid+MMR 검색을 재사용한다.** MMR의 "비슷하지만 다른 Note 발견"이 이 기능의 목적과 같다.
 - **Base Lite는 쿼리 문법 없이 UI 컨트롤만 둔다(필터, 정렬, 그룹, 표/목록).** frontmatter 파싱은 backend가 하고 필터링은 클라이언트가 한다. 기획 문서가 "Dataview 전체 복제 금지"를 정했고, 개인 Workspace 규모에서는 클라이언트 처리로 충분하다.

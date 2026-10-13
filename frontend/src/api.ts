@@ -3,6 +3,13 @@ export interface NoteMeta {
   name: string;
 }
 
+export interface NoteGraph {
+  center: string;
+  nodes: NoteMeta[];
+  edges: { source: string; target: string; direction: "outgoing" | "incoming" | "both"; bidirectional: boolean }[];
+  unresolved: { target: string; status: "missing" | "ambiguous"; matches: string[] }[];
+}
+
 export interface SearchHit {
   kind: string;
   path: string;
@@ -101,6 +108,7 @@ export const api = {
     ),
   backlinks: (path: string) =>
     req<{ backlinks: NoteMeta[] }>(`/api/notes/backlinks?path=${encodeURIComponent(path)}`),
+  graph: (path: string) => req<NoteGraph>(`/api/notes/graph?path=${encodeURIComponent(path)}`),
   resolve: (target: string) =>
     req<{ status: "ok" | "missing" | "ambiguous"; matches: string[] }>(
       `/api/links/resolve?target=${encodeURIComponent(target)}`

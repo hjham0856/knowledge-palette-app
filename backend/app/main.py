@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from . import chat, db, indexer, llm, retrieval
 from .workspace import Workspace
+from .graph import local_graph
 
 app = FastAPI(title="Knowledge Palette")
 
@@ -171,6 +172,16 @@ def resolve(target: str = Query(...)):
         "status": status,
         "matches": [str(p.relative_to(ws.root / "notes")) for p in matches],
     }
+
+
+@app.get("/api/notes/graph")
+def graph(path: str = Query(...)):
+    try:
+        return local_graph(current(), path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid path")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="note not found")
 
 
 @app.get("/api/notes/names")

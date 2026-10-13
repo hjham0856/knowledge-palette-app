@@ -118,3 +118,12 @@ Chat은 Markdown을 수정하지 않는다. 대화·메시지·인용은 Postgre
 검색 준비 실패는 화면에 표시하며 근거 없이 대화를 계속한다. 오래된 근거는 제외한다.
 빈 응답과 형식 오류는 `error`, 연결 끊김이나 정상 종료가 아닌 응답은 `interrupted`이며 `complete`와 구분한다.
 Provider를 설정하지 않아도 Notes/Search/Sources는 사용할 수 있다.
+
+## Phase 6-A — Local Graph
+
+Notes에서 Note를 선택한 뒤 상단 **Graph**를 누르면 현재 Note와 직접 연결된 Note(1-hop)가 보인다.
+실선 화살표는 나가는 wikilink, 점선 화살표는 들어오는 backlink, 굵은 양끝 화살표는 양방향 연결이다.
+노드나 아래 경로 목록을 누르면 Note 선택과 그래프 중심이 함께 이동한다. 보류 중인 저장이 실패하면 이동하지 않는다.
+전체 이름은 경로 목록에서 확인하고, 좁은 화면이나 연결이 많은 그래프는 좌우로 스크롤한다.
+missing(대상 없음)·ambiguous(파일명 중복)는 별도 목록에 표시하며 임의의 Note로 연결하지 않는다.
+DB·임베딩 없이 Markdown 원본에서 계산한다. Related Notes, Base Lite, Global Graph는 이 단계에 포함하지 않는다.
