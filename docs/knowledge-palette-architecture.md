@@ -7,7 +7,7 @@
 실행 형태는 로컬 서버와 브라우저다. Frontend는 브라우저에서 사용하고 Backend가 로컬 Workspace 파일을 읽고 쓴다.
 
 ```text
-Frontend
+Frontend  
 Vue 3 + TypeScript
 
 Backend
@@ -330,7 +330,7 @@ Knowledge Candidate Extraction
       ↓
 Candidate ↔ Existing Note 비교
       ↓
-CREATE / UPDATE / LINK / NOOP
+CREATE / UPDATE / LINK / NONE
       ↓
 Operation 생성
       ↓

@@ -21,7 +21,7 @@
        ↓
 기존 Knowledge Base와 비교
        ↓
-CREATE / UPDATE / LINK / NOOP
+CREATE / UPDATE / LINK / NONE
        ↓
 Markdown 지식베이스 갱신
 ```
@@ -162,7 +162,7 @@ UPDATE
 LINK
 기존 Note들 사이에 새 연결을 추가
 
-NOOP
+NONE
 저장할 필요가 없거나 이미 충분히 존재
 ```
 

@@ -100,7 +100,6 @@ PDF → text/Markdown → chunk → embedding 흐름을 지원한다.
 질문
 통찰
 중요한 일반 지식
-프로젝트 판단/결정
 ```
 
 각 후보에 대해 기존 Note를 검색한 뒤:
@@ -109,7 +108,7 @@ PDF → text/Markdown → chunk → embedding 흐름을 지원한다.
 CREATE
 UPDATE
 LINK
-NOOP
+NONE
 ```
 
 중 하나를 결정한다.
@@ -276,7 +275,7 @@ Knowledge Candidate 추출
 ↓
 관련 Note 검색
 ↓
-CREATE / UPDATE / LINK / NOOP
+CREATE / UPDATE / LINK / NONE
 ↓
 Markdown 자동 갱신
 ```
