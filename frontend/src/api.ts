@@ -3,6 +3,14 @@ export interface NoteMeta {
   name: string;
 }
 
+export interface BaseNote {
+  path: string;
+  name: string;
+  title: string;
+  frontmatter: Record<string, unknown>;
+  error: string | null;
+}
+
 export interface SearchHit {
   kind: string;
   path: string;
@@ -85,6 +93,7 @@ export const api = {
       body: JSON.stringify({ path }),
     }),
   listNotes: () => req<{ notes: NoteMeta[] }>("/api/notes"),
+  noteFrontmatter: () => req<{ notes: BaseNote[] }>("/api/notes/frontmatter"),
   noteNames: () => req<{ notes: NoteMeta[] }>("/api/notes/names"),
   readNote: (path: string) =>
     req<{ path: string; content: string }>(`/api/notes/content?path=${encodeURIComponent(path)}`),

@@ -5,12 +5,14 @@ import SearchView from "./SearchView.vue";
 import SourcesView from "./SourcesView.vue";
 import ChatView from "./ChatView.vue";
 import NotesView from "./NotesView.vue";
+import BaseView from "./BaseView.vue";
 
 const modes = [
   { id: "chat", label: "Chat" },
   { id: "notes", label: "Notes" },
   { id: "search", label: "Search" },
   { id: "sources", label: "Sources" },
+  { id: "base", label: "Base" },
 ] as const;
 const mode = ref<(typeof modes)[number]["id"]>("chat");
 const splitChat = ref(false); // Chat에서 노트를 명시적으로 함께 볼 때만 켠다.
@@ -76,7 +78,7 @@ async function createPath(path: string) {
   }
 }
 
-async function setMode(m: "notes" | "search" | "sources" | "chat") {
+async function setMode(m: "notes" | "search" | "sources" | "chat" | "base") {
   if (m === mode.value || locked.value) return;
   busy.value = true; // flush 동안 다른 전환/편집이 섞이지 않게 잠근다.
   try {
@@ -170,6 +172,7 @@ onBeforeUnmount(() => {
       </div>
       <SearchView v-if="mode === 'search'" @open-note="openNoteInNotes" />
       <SourcesView v-if="mode === 'sources'" />
+      <BaseView v-if="mode === 'base'" :navigation-busy="locked" @open-note="openNoteInNotes" />
     </main>
   </div>
 </template>
@@ -179,7 +182,7 @@ onBeforeUnmount(() => {
 .app-header { flex-shrink: 0; }
 .nav-pill { display: flex; align-items: center; justify-content: center; gap: var(--space-lg); width: fit-content; max-width: 100%; margin: 0 auto var(--space-md); padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-lg); border: var(--rule-soft); border-radius: var(--radius-pill); background: var(--color-paper-0); box-shadow: var(--shadow-nav); }
 .wordmark { margin: 0; font-size: var(--text-base); font-weight: 600; letter-spacing: -0.03em; white-space: nowrap; }
-.modes { display: flex; gap: var(--space-2xs); }
+.modes { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2xs); }
 .modes button { border: 0; background: var(--color-transparent); padding-inline: var(--space-md); }
 .modes button.active { background: var(--color-ink-0); color: var(--color-paper-0); }
 .workspace-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-xs); max-width: 1000px; margin: auto; }
