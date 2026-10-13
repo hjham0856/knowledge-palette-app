@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from . import chat, db, indexer, llm, retrieval
 from .workspace import Workspace
+from .base import frontmatter_notes
 
 app = FastAPI(title="Knowledge Palette")
 
@@ -105,6 +106,11 @@ def read_note(path: str = Query(...)):
     if not p.is_file():
         raise HTTPException(status_code=404, detail="note not found")
     return {"path": path, "content": p.read_text(encoding="utf-8")}
+
+
+@app.get("/api/notes/frontmatter")
+def note_frontmatter():
+    return {"notes": frontmatter_notes(current())}
 
 
 @app.post("/api/notes")

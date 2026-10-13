@@ -118,3 +118,9 @@ Chat은 Markdown을 수정하지 않는다. 대화·메시지·인용은 Postgre
 검색 준비 실패는 화면에 표시하며 근거 없이 대화를 계속한다. 오래된 근거는 제외한다.
 빈 응답과 형식 오류는 `error`, 연결 끊김이나 정상 종료가 아닌 응답은 `interrupted`이며 `complete`와 구분한다.
 Provider를 설정하지 않아도 Notes/Search/Sources는 사용할 수 있다.
+
+## Phase 6-C — Base Lite
+
+Workspace를 연 뒤 **Base**에서 Note의 YAML frontmatter를 표/목록으로 모아 본다. 데이터에 있는 필드로 포함/같음/존재 필터, 오름/내림 정렬, 그룹을 선택한다. 리스트 값은 항목별로 필터링하고 각 값의 그룹에 표시한다. 행을 누르면 기존 저장 대기 규칙을 거쳐 Note를 연다.
+
+DB·임베딩은 필요 없다. 원본은 수정하지 않으며 잘못된 YAML은 Note별 오류로 표시한다. 최신 파일을 읽으려면 새로고침하거나 Base를 다시 연다. 쿼리 문법·Dataview 호환은 지원하지 않는다.
