@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>지식 팔레트 코드 검토 가이드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* 앱(frontend/src/styles/tokens.css)과 같은 Tally 토큰을 쓴다. */
+:root {
+  --paper-0: oklch(98.4% 0.005 258);
+  --paper-1: oklch(96.2% 0.010 258);
+  --paper-2: oklch(93.0% 0.015 258);
+  --paper-3: oklch(89.0% 0.020 258);
+  --ink-0: oklch(18.0% 0.030 258);
+  --ink-1: oklch(35.0% 0.025 258);
+  --ink-2: oklch(52.0% 0.018 258);
+  --ink-3: oklch(70.0% 0.012 258);
+  --accent: oklch(54.0% 0.220 268);
+  --accent-soft: oklch(72.0% 0.140 268);
+  --accent-tint: oklch(94.0% 0.040 268);
+  --companion: oklch(82.0% 0.180 130);
+  --companion-tint: oklch(95.0% 0.060 130);
+  --warning: oklch(74.0% 0.180 50);
+  --warning-tint: oklch(95.5% 0.045 60);
+  --success: oklch(52.0% 0.150 145);
+  --focus: oklch(46.0% 0.220 268);
+  --font-body: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px; --radius-pill: 999px;
+  --rule-hair: 1px solid color-mix(in oklch, var(--ink-0) 8%, transparent);
+  --rule-soft: 1px solid color-mix(in oklch, var(--ink-0) 14%, transparent);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; overflow-x: clip; }
+body {
+  font-family: var(--font-body); color: var(--ink-0); line-height: 1.6; font-size: 16px;
+  background:
+    radial-gradient(1100px 520px at 10% -10%, color-mix(in oklch, var(--accent-tint) 70%, transparent), transparent 60%),
+    radial-gradient(800px 420px at 92% 6%, color-mix(in oklch, var(--companion) 25%, transparent), transparent 55%),
+    var(--paper-0);
+  background-attachment: fixed;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: var(--radius-sm); }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+code { background: var(--paper-2); padding: 0.08em 0.38em; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; margin: 0; font-style: normal; overflow-wrap: anywhere; }
+p { margin: 0 0 0.8em; }
+
+.nav {
+  position: sticky; top: 12px; z-index: 10; margin: 12px auto 0; width: fit-content; max-width: calc(100% - 32px);
+  display: flex; gap: 4px; padding: 6px; border: var(--rule-soft); border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--paper-0) 82%, transparent); backdrop-filter: blur(16px);
+  box-shadow: 0 8px 28px -14px rgba(20, 30, 80, 0.25); overflow-x: auto; scrollbar-width: none;
+}
+.nav a { color: var(--ink-1); text-decoration: none; font-size: 14px; padding: 6px 12px; border-radius: var(--radius-pill); white-space: nowrap; }
+.nav a:hover { background: var(--paper-2); color: var(--ink-0); }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+header.hero { padding: 64px 0 32px; }
+header.hero h1 { font-size: clamp(2rem, 6vw, 3.25rem); margin: 10px 0 16px; }
+header.hero p.lead { font-size: 1.125rem; color: var(--ink-1); max-width: 62ch; }
+.progress { display: flex; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+.bar { flex: 1 1 220px; height: 8px; background: var(--paper-2); border-radius: var(--radius-pill); overflow: hidden; max-width: 360px; }
+.bar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 240ms ease; }
+
+section.block { margin-top: 64px; scroll-margin-top: 80px; }
+section.block > h2 { font-size: 1.75rem; margin: 8px 0 16px; }
+.card { background: var(--paper-1); border: var(--rule-hair); border-radius: var(--radius-lg); padding: 24px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.principle h3 { font-size: 1rem; margin-bottom: 6px; }
+.principle p { color: var(--ink-1); font-size: 0.95rem; margin: 0; }
+
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+ol.steps > li { counter-increment: s; position: relative; padding: 14px 16px 14px 56px; background: var(--paper-1); border: var(--rule-hair); border-radius: var(--radius-md); }
+ol.steps > li::before { content: counter(s); position: absolute; left: 16px; top: 13px; width: 26px; height: 26px; border-radius: 50%; background: var(--ink-0); color: var(--paper-0); font: 600 13px/26px var(--font-mono); text-align: center; }
+pre { background: var(--ink-0); color: var(--paper-1); padding: 14px 16px; border-radius: var(--radius-md); overflow-x: auto; font: 13px/1.6 var(--font-mono); margin: 8px 0 0; }
+
+figure.diagram { margin: 0; background: var(--paper-1); border: var(--rule-hair); border-radius: var(--radius-lg); padding: 16px; overflow-x: auto; }
+figure.diagram svg { display: block; width: 100%; min-width: 680px; height: auto; }
+figcaption { font-size: 0.9rem; color: var(--ink-2); margin-top: 10px; }
+svg .box { fill: var(--paper-0); stroke: color-mix(in oklch, var(--ink-0) 20%, transparent); }
+svg .box-accent { fill: var(--accent-tint); stroke: var(--accent-soft); }
+svg .box-lime { fill: var(--companion-tint); stroke: color-mix(in oklch, var(--companion) 80%, var(--ink-0)); }
+svg .box-warn { fill: var(--warning-tint); stroke: var(--warning); }
+svg .lane { fill: color-mix(in oklch, var(--paper-2) 70%, transparent); stroke: none; }
+svg .t { fill: var(--ink-0); font: 600 14px var(--font-body); }
+svg .s { fill: var(--ink-2); font: 12px var(--font-mono); }
+svg .lane-t { fill: var(--ink-2); font: 500 12px var(--font-mono); letter-spacing: 0.08em; }
+svg .edge { stroke: var(--ink-3); stroke-width: 1.5; fill: none; }
+svg .edge-strong { stroke: var(--accent); stroke-width: 2; fill: none; }
+svg .arrow { fill: var(--ink-3); }
+svg .arrow-strong { fill: var(--accent); }
+
+/* 검토 단계 */
+.stage { border: var(--rule-hair); background: var(--paper-1); border-radius: var(--radius-lg); margin-top: 16px; overflow: hidden; }
+.stage > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 20px 24px; }
+.stage > summary::-webkit-details-marker { display: none; }
+.stage > summary:hover { background: var(--paper-2); }
+.num { font: 600 14px var(--font-mono); width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); }
+.stage.done .num { background: var(--success); color: var(--paper-0); }
+.stage h3 { font-size: 1.15rem; }
+.stage .sub { color: var(--ink-2); font-size: 0.9rem; margin-top: 2px; }
+.chip { display: inline-block; font: 500 11px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--paper-2); color: var(--ink-1); white-space: nowrap; }
+.stage-body { padding: 4px 24px 24px; border-top: var(--rule-hair); }
+.stage-body h4 { font-size: 0.95rem; margin: 20px 0 8px; }
+.files { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.files li { display: block; padding: 10px 12px; background: var(--paper-0); border: var(--rule-hair); border-radius: var(--radius-md); }
+.files li a { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.files li > span { display: block; margin-top: 4px; color: var(--ink-1); font-size: 0.93rem; }
+ul.checks { margin: 0; padding-left: 1.2em; color: var(--ink-1); }
+ul.checks li { margin: 4px 0; }
+.terms { display: flex; flex-wrap: wrap; gap: 8px; }
+.term { background: var(--paper-0); border: var(--rule-hair); border-radius: var(--radius-md); padding: 8px 12px; font-size: 0.9rem; max-width: 100%; }
+.term b { font-weight: 600; }
+.done-toggle { display: inline-flex; align-items: center; gap: 8px; margin-top: 20px; font-size: 0.93rem; cursor: pointer; }
+.done-toggle input { width: 18px; height: 18px; accent-color: var(--success); }
+.rail { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 0; }
+.rail span { background: var(--paper-0); border: var(--rule-hair); border-radius: var(--radius-pill); padding: 4px 10px; font-size: 0.85rem; }
+.rail i { font-style: normal; color: var(--ink-3); }
+
+.table-wrap { overflow-x: auto; border: var(--rule-hair); border-radius: var(--radius-lg); background: var(--paper-1); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: var(--rule-hair); vertical-align: top; }
+th { font: 500 12px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); background: var(--paper-2); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.method { font: 600 12px var(--font-mono); padding: 2px 8px; border-radius: var(--radius-sm); background: var(--accent-tint); color: var(--accent); }
+.method.post, .method.put { background: var(--companion-tint); color: oklch(40% 0.12 130); }
+
+.callout { border-left: 3px solid var(--accent); background: var(--accent-tint); padding: 14px 18px; border-radius: 0 var(--radius-md) var(--radius-md) 0; color: var(--ink-1); }
+footer { margin-top: 80px; color: var(--ink-2); font-size: 0.9rem; }
+
+@media (max-width: 760px) {
+  .wrap { padding: 0 16px 72px; }
+  .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); }
+  .stage > summary { grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
+  .stage > summary .chip { display: none; }
+  .stage-body { padding: 4px 16px 20px; }
+  .nav { top: 8px; }
+}
+</style>
+</head>
+<body>
+<nav class="nav" aria-label="가이드 목차">
+  <a href="#run">실행</a>
+  <a href="#big">큰 그림</a>
+  <a href="#map">코드 지도</a>
+  <a href="#stages">검토 순서</a>
+  <a href="#api">API</a>
+  <a href="#db">DB</a>
+  <a href="#tests">테스트</a>
+  <a href="#terms">용어</a>
+</nav>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">Knowledge Palette · Code Review Guide</div>
+  <h1>지식 팔레트를 처음부터 읽는 순서</h1>
+  <p class="lead">
+    저장소의 첫 커밋부터 지금까지 구현된 전체 내용(Phase 1~6)을 개발 입문자 기준으로 읽는 순서다.
+    각 단계는 "왜 이 코드가 있는가 → 어떤 파일을 어떤 순서로 → 무엇을 확인할까"로 구성되어 있다.
+    단계를 다 읽으면 체크해 두면 이 브라우저에 진행 상황이 남는다.
+  </p>
+  <div class="progress">
+    <div class="bar" aria-hidden="true"><span id="bar"></span></div>
+    <span class="mono" id="progress-text">0 / 9 단계</span>
+  </div>
+</header>
+
+<section class="block" id="what">
+  <div class="eyebrow">00 · 무엇을 만드는가</div>
+  <h2>한 문장 요약</h2>
+  <p>
+    사용자가 LLM과 대화하며 얻은 생각·질문·통찰을 자동으로 골라, 기존 Markdown 노트와 비교한 뒤
+    <b>새 Note 만들기(CREATE) / 기존 Note에 덧붙이기(UPDATE) / 연결 추가(LINK) / 아무것도 안 함(NONE)</b> 중 하나로
+    지식베이스에 반영하고, 그 변경을 언제든 되돌릴(Undo) 수 있게 하는 로컬 앱이다.
+  </p>
+  <div class="grid3">
+    <div class="card principle"><h3>Markdown이 진짜 데이터</h3><p><code>notes/*.md</code>가 원본이다. DB가 사라져도 지식은 남는다.</p></div>
+    <div class="card principle"><h3>DB는 파생 데이터</h3><p>검색 색인·임베딩은 언제든 Markdown/PDF에서 다시 만들 수 있다.</p></div>
+    <div class="card principle"><h3>AI 변경은 되돌릴 수 있다</h3><p>자동 반영 대신 매번 묻지 않고, 대신 기록하고 Undo를 제공한다.</p></div>
+  </div>
+</section>
+
+<section class="block" id="run">
+  <div class="eyebrow">01 · 먼저 실행해 보기</div>
+  <h2>코드를 읽기 전에 직접 써 본다</h2>
+  <p>화면을 먼저 써 보면 코드가 "어떤 버튼의 뒤편"인지 연결하기 쉽다. 자세한 설명은 <a href="../README.md">README.md</a>.</p>
+  <ol class="steps">
+    <li>준비물: Python 3.11+와 <code>uv</code>, Node 20+, Docker Desktop, Ollama(<code>qwen3.5:4b-mlx</code>).</li>
+    <li>설정과 의존성
+      <pre>cp .env.example .env
+cd backend && uv sync && cd ..
+cd frontend && npm ci && cd ..
+docker compose -f docker/docker-compose.yml up -d</pre></li>
+    <li>서버 두 개 실행(터미널 2개)
+      <pre>cd backend && uv run --env-file ../.env uvicorn app.main:app --host 127.0.0.1 --port 8000
+cd frontend && npm run dev</pre></li>
+    <li>브라우저에서 <code>http://127.0.0.1:5173</code> → Workspace 경로에 <code>example-workspace</code>의 <b>복사본</b> 경로를 넣고 "열기". 앱은 실제 파일을 고치므로 복사본을 권한다.</li>
+    <li>화면 순서대로 써 보기: <b>Notes</b>(편집·링크) → <b>Sources</b>(PDF 넣고 색인) → <b>Search</b> → <b>Chat</b>(3번 주고받기) → 아래 요약의 바뀐 Note → <b>History</b>(Diff, Undo) → <b>Graph</b> → <b>Base</b>.</li>
+    <li>테스트: <code>cd backend && uv run --env-file ../.env pytest -q</code>(DB가 켜져 있어야 DB 테스트가 실행된다), <code>cd frontend && npm run typecheck && npm run build</code>.</li>
+  </ol>
+</section>
+
+<section class="block" id="big">
+  <div class="eyebrow">02 · 큰 그림</div>
+  <h2>브라우저 · 로컬 서버 · 저장소</h2>
+  <figure class="diagram">
+    <svg viewBox="0 0 960 430" role="img" aria-labelledby="arch-title">
+      <title id="arch-title">브라우저의 Vue 화면이 HTTP와 SSE로 FastAPI 서버와 통신하고, 서버는 Markdown 파일, PostgreSQL, LLM Provider를 사용한다</title>
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrow"/></marker>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrow-strong"/></marker>
+      </defs>
+      <rect class="lane" x="10" y="10" width="250" height="410" rx="16"/>
+      <text class="lane-t" x="30" y="38">BROWSER · VUE 3</text>
+      <rect class="lane" x="300" y="10" width="330" height="410" rx="16"/>
+      <text class="lane-t" x="320" y="38">LOCAL SERVER · FASTAPI</text>
+      <rect class="lane" x="670" y="10" width="280" height="410" rx="16"/>
+      <text class="lane-t" x="690" y="38">STORAGE · PROVIDERS</text>
+
+      <rect class="box" x="30" y="56" width="210" height="44" rx="10"/><text class="t" x="44" y="83">App.vue · 모드 전환</text>
+      <rect class="box" x="30" y="112" width="210" height="44" rx="10"/><text class="t" x="44" y="139">Notes · Search · Sources</text>
+      <rect class="box-accent" x="30" y="168" width="210" height="44" rx="10"/><text class="t" x="44" y="195">Chat (SSE 스트림)</text>
+      <rect class="box-accent" x="30" y="224" width="210" height="44" rx="10"/><text class="t" x="44" y="251">History · Undo</text>
+      <rect class="box" x="30" y="280" width="210" height="44" rx="10"/><text class="t" x="44" y="307">Graph · Related · Base</text>
+      <rect class="box" x="30" y="350" width="210" height="52" rx="10"/><text class="t" x="44" y="372">api.ts</text><text class="s" x="44" y="391">모든 HTTP 호출의 창구</text>
+
+      <rect class="box" x="320" y="56" width="290" height="44" rx="10"/><text class="t" x="334" y="83">main.py · API 입구(라우트)</text>
+      <rect class="box" x="320" y="112" width="140" height="44" rx="10"/><text class="t" x="334" y="139">workspace.py</text>
+      <rect class="box" x="470" y="112" width="140" height="44" rx="10"/><text class="t" x="484" y="139">indexer.py</text>
+      <rect class="box" x="320" y="168" width="140" height="44" rx="10"/><text class="t" x="334" y="195">retrieval.py</text>
+      <rect class="box-accent" x="470" y="168" width="140" height="44" rx="10"/><text class="t" x="484" y="195">chat.py</text>
+      <rect class="box-accent" x="320" y="224" width="290" height="44" rx="10"/><text class="t" x="334" y="251">knowledge.py · 지식 반영 + Undo</text>
+      <rect class="box" x="320" y="280" width="140" height="44" rx="10"/><text class="t" x="334" y="307">llm.py</text>
+      <rect class="box" x="470" y="280" width="140" height="44" rx="10"><title>graph.py · related.py · base.py</title></rect><text class="t" x="484" y="307">탐색 기능 3종</text>
+      <rect class="box" x="320" y="350" width="290" height="52" rx="10"/><text class="t" x="334" y="372">db.py · embeddings.py · parsers.py</text><text class="s" x="334" y="391">DB 연결 · 임베딩 · PDF 파싱</text>
+
+      <rect class="box-lime" x="690" y="56" width="240" height="70" rx="10"/><text class="t" x="704" y="84">notes/*.md</text><text class="s" x="704" y="106">진짜 데이터 · 앱이 읽고 씀</text>
+      <rect class="box" x="690" y="140" width="240" height="70" rx="10"/><text class="t" x="704" y="168">sources/ (PDF, md)</text><text class="s" x="704" y="190">원본 자료 · 읽기만</text>
+      <rect class="box-warn" x="690" y="224" width="240" height="88" rx="10"/><text class="t" x="704" y="252">PostgreSQL + pgvector</text><text class="s" x="704" y="274">색인·임베딩·대화·History</text><text class="s" x="704" y="294">파생/운영 데이터 (Docker)</text>
+      <rect class="box" x="690" y="326" width="240" height="76" rx="10"/><text class="t" x="704" y="354">LLM Provider</text><text class="s" x="704" y="376">Ollama · OpenAI 호환 API</text>
+
+      <path class="edge-strong" d="M240 375 C 270 375, 280 78, 318 78" marker-end="url(#a2)"/>
+      <text class="s" transform="translate(286 300) rotate(-90)">HTTP / SSE</text>
+      <path class="edge" d="M610 134 C 650 134, 650 91, 688 91" marker-end="url(#a1)"/>
+      <path class="edge" d="M610 134 C 650 134, 650 175, 688 175" marker-end="url(#a1)"/>
+      <path class="edge" d="M610 190 C 650 190, 650 268, 688 268" marker-end="url(#a1)"/>
+      <path class="edge" d="M610 246 C 650 246, 650 268, 688 268" marker-end="url(#a1)"/>
+      <path class="edge" d="M390 324 C 390 338, 620 336, 688 362" marker-end="url(#a1)"/>
+    </svg>
+    <figcaption>보라색 상자는 AI가 관여하는 경로(Chat, Knowledge Update, History). 초록은 사용자 데이터의 원본, 주황은 언제든 다시 만들 수 있는 DB.</figcaption>
+  </figure>
+</section>
+
+<section class="block" id="map">
+  <div class="eyebrow">03 · 코드 지도 (graphify)</div>
+  <h2>무엇이 무엇에 기대고 있나</h2>
+  <p>
+    <code>graphify update</code>로 <code>backend/app</code>, <code>backend/tests</code>, <code>frontend/src</code>를 분석한 결과(466개 심볼, 982개 관계, 19개 군집)를
+    파일 단위로 접었다. 화살표 방향은 "아래 층을 사용한다"이다. 위층부터 읽으면 흐름이, 아래층부터 읽으면 기반이 보인다.
+  </p>
+  <figure class="diagram">
+    <svg viewBox="0 0 960 470" role="img" aria-labelledby="dep-title">
+      <title id="dep-title">백엔드 모듈 계층: main.py가 기능 모듈을, 기능 모듈이 검색·LLM 계층을, 그 계층이 workspace·db·embeddings·parsers 기반 계층을 사용한다</title>
+      <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrow"/></marker>
+      </defs>
+      <text class="lane-t" x="16" y="40">L1 · 입구</text>
+      <text class="lane-t" x="16" y="150">L2 · 기능</text>
+      <text class="lane-t" x="16" y="270">L3 · 엔진</text>
+      <text class="lane-t" x="16" y="390">L4 · 기반</text>
+
+      <rect class="box" x="360" y="18" width="240" height="48" rx="10"/><text class="t" x="374" y="40">main.py</text><text class="s" x="374" y="57">FastAPI 라우트 29개</text>
+
+      <rect class="box-accent" x="120" y="124" width="150" height="56" rx="10"/><text class="t" x="134" y="147">chat.py</text><text class="s" x="134" y="166">Phase 3</text>
+      <rect class="box-accent" x="290" y="124" width="150" height="56" rx="10"/><text class="t" x="304" y="147">knowledge.py</text><text class="s" x="304" y="166">Phase 4 · 5</text>
+      <rect class="box" x="460" y="124" width="150" height="56" rx="10"/><text class="t" x="474" y="147">related.py</text><text class="s" x="474" y="166">Phase 6</text>
+      <rect class="box" x="630" y="124" width="150" height="56" rx="10"/><text class="t" x="644" y="147">graph.py</text><text class="s" x="644" y="166">Phase 6</text>
+      <rect class="box" x="800" y="124" width="140" height="56" rx="10"/><text class="t" x="814" y="147">base.py</text><text class="s" x="814" y="166">Phase 6</text>
+
+      <rect class="box" x="200" y="244" width="170" height="56" rx="10"/><text class="t" x="214" y="267">retrieval.py</text><text class="s" x="214" y="286">hybrid + MMR</text>
+      <rect class="box" x="400" y="244" width="170" height="56" rx="10"/><text class="t" x="414" y="267">indexer.py</text><text class="s" x="414" y="286">청크·색인·재색인</text>
+      <rect class="box" x="600" y="244" width="170" height="56" rx="10"/><text class="t" x="614" y="267">llm.py</text><text class="s" x="614" y="286">LLMClient</text>
+
+      <rect class="box-lime" x="120" y="364" width="180" height="56" rx="10"/><text class="t" x="134" y="387">workspace.py</text><text class="s" x="134" y="406">Workspace · 45 연결</text>
+      <rect class="box-warn" x="320" y="364" width="180" height="56" rx="10"/><text class="t" x="334" y="387">db.py</text><text class="s" x="334" y="406">connect() · 29 연결</text>
+      <rect class="box" x="520" y="364" width="180" height="56" rx="10"/><text class="t" x="534" y="387">embeddings.py</text><text class="s" x="534" y="406">FastEmbed</text>
+      <rect class="box" x="720" y="364" width="180" height="56" rx="10"/><text class="t" x="734" y="387">parsers.py</text><text class="s" x="734" y="406">PyMuPDF</text>
+
+      <path class="edge" d="M480 66 L195 122" marker-end="url(#a3)"/>
+      <path class="edge" d="M480 66 L365 122" marker-end="url(#a3)"/>
+      <path class="edge" d="M480 66 L535 122" marker-end="url(#a3)"/>
+      <path class="edge" d="M480 66 L705 122" marker-end="url(#a3)"/>
+      <path class="edge" d="M480 66 L870 122" marker-end="url(#a3)"/>
+
+      <path class="edge" d="M195 180 L270 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M195 180 L470 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M195 180 L670 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M365 180 L300 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M365 180 L490 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M365 180 L650 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M535 180 L330 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M535 180 L510 242" marker-end="url(#a3)"/>
+      <path class="edge" d="M705 180 L230 362" marker-end="url(#a3)"/>
+      <path class="edge" d="M870 180 L260 362" marker-end="url(#a3)"/>
+
+      <path class="edge" d="M285 300 L410 362" marker-end="url(#a3)"/>
+      <path class="edge" d="M285 300 L590 362" marker-end="url(#a3)"/>
+      <path class="edge" d="M485 300 L210 362" marker-end="url(#a3)"/>
+      <path class="edge" d="M485 300 L430 362" marker-end="url(#a3)"/>
+      <path class="edge" d="M485 300 L610 362" marker-end="url(#a3)"/>
+      <path class="edge" d="M485 300 L790 362" marker-end="url(#a3)"/>
+    </svg>
+    <figcaption>
+      graphify가 꼽은 핵심 노드: <code>Workspace</code>(45), <code>db.connect()</code>(29), <code>main.current()</code>(27), <code>indexer.reindex()</code>(16), <code>chat.generate()</code>(14), <code>knowledge._plan()</code>(12), <code>retrieval.search()</code>(12).
+      chat.py와 knowledge.py는 workspace·db도 직접 쓴다(선 생략). 프론트엔드는 <code>main.ts → App.vue → *View.vue → api.ts</code> 한 방향 구조이고 순환 의존은 없다.
+    </figcaption>
+  </figure>
+</section>
+
+<section class="block" id="stages">
+  <div class="eyebrow">04 · 검토 순서</div>
+  <h2>9단계로 나눠 읽기</h2>
+  <div class="callout">
+    각 단계는 앞 단계 위에 쌓인다. 화면(<code>*.vue</code>) → API 입구(<code>main.py</code>) → 처리 코드 → 테스트 순서로 읽고,
+    "확인할 것"에 스스로 답해 본다. 파일 이름을 누르면 저장소의 해당 파일이 열린다(로컬에서 이 HTML을 열었을 때).
+  </div>
+
+  <details class="stage" data-stage="0" open>
+    <summary><span class="num">0</span><div><h3>프로젝트 규칙과 설정</h3><div class="sub">코드를 읽기 전에, 이 저장소가 지키는 약속</div></div><span class="chip">init</span></summary>
+    <div class="stage-body">
+      <h4>읽을 파일</h4>
+      <ul class="files">
+        <li><a href="../docs/knowledge-palette-plan.md">docs/knowledge-palette-plan.md</a><span>왜 만드는가. Source와 Note의 차이, Knowledge Delta, "자동화 후 Undo" 원칙.</span></li>
+        <li><a href="../docs/knowledge-palette-mvp-scope.md">docs/knowledge-palette-mvp-scope.md</a><span>무엇을 만드는가. Phase 1~6 순서와 §6 첫 시나리오.</span></li>
+        <li><a href="../AGENTS.md">AGENTS.md</a> · <a href="../TESTING.md">TESTING.md</a><span>작업·주석 규칙과 테스트 제한(성공 1개 + 명시된 실패 각 1개, mock ≤ 2).</span></li>
+        <li><a href="../작업 내역.md">작업 내역.md</a> · <a href="implementation-decisions.md">implementation-decisions.md</a><span>문서에 없어 구현 중 고른 선택과 그 이유.</span></li>
+        <li><a href="../backend/pyproject.toml">backend/pyproject.toml</a> · <a href="../frontend/package.json">frontend/package.json</a><span>사용 라이브러리. FastAPI, psycopg, pgvector, FastEmbed, PyMuPDF, httpx, PyYAML / Vue 3, markdown-it, diff.</span></li>
+        <li><a href="../docker/docker-compose.yml">docker/docker-compose.yml</a> · <a href="../.env.example">.env.example</a><span>DB 컨테이너(127.0.0.1:54329)와 설정 항목(DB, 임베딩 모델, LLM).</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>Note와 Source는 왜 다르게 취급되나? (Note = 내 지식, Source = 근거 원본)</li>
+        <li><code>.env</code>는 왜 Git에 없고 <code>.env.example</code>만 있나?</li>
+      </ul>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="1">
+    <summary><span class="num">1</span><div><h3>Workspace와 Markdown 파일</h3><div class="sub">앱이 실제 폴더를 어떻게 안전하게 읽고 쓰는가</div></div><span class="chip">Phase 1</span></summary>
+    <div class="stage-body">
+      <p>모든 기능의 바닥. Note 파일 접근은 전부 이 클래스를 거친다(graphify 기준 가장 많이 연결된 노드).</p>
+      <h4>읽을 파일 · 순서대로</h4>
+      <ul class="files">
+        <li><a href="../backend/app/workspace.py">backend/app/workspace.py</a><span><code>Workspace.ensure</code>(notes/·sources/ 생성, 심볼릭 링크 거부) → <code>safe_note_path</code>(경계 검사) → <code>note_files</code> → <code>resolve_target</code>(파일명 기준 wikilink, ok/missing/ambiguous) → <code>backlinks</code> → <code>search</code>. 맨 위 <code>extract_wikilinks</code>.</span></li>
+        <li><a href="../backend/app/main.py">backend/app/main.py</a><span>앞부분: <code>current()</code>(열린 Workspace), <code>/api/workspace/*</code>, <code>/api/notes*</code>, <code>/api/search</code>, <code>/api/links/resolve</code>. Note 저장(<code>PUT /api/notes/content</code>)이 색인을 <code>stale</code>로만 표시하는 부분도 본다.</span></li>
+        <li><a href="../backend/tests/test_phase1.py">backend/tests/test_phase1.py</a><span>성공 경로, 파일명 링크 규칙, Workspace 탈출 금지.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li><code>[[이름]]</code>이 두 파일과 같으면 왜 아무것도 고르지 않나? <code>[[./이름]]</code>은 무엇을 뜻하나?</li>
+        <li>경계 검사가 왜 경로 문자열이 아니라 <code>realpath</code> 기준인가? (심볼릭 링크 탈출)</li>
+        <li>쓰기가 <code>.md</code>로만 제한되는 곳은 어디인가?</li>
+      </ul>
+      <div class="terms">
+        <span class="term"><b>wikilink</b> · <code>[[파일명]]</code> 형태의 연결</span>
+        <span class="term"><b>backlink</b> · 지금 Note를 가리키는 다른 Note</span>
+        <span class="term"><b>frontmatter</b> · 파일 맨 위 <code>---</code> 사이 YAML</span>
+      </div>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="2">
+    <summary><span class="num">2</span><div><h3>Notes 화면과 앱 껍데기</h3><div class="sub">자동 저장, 화면 전환 잠금, 링크 미리보기</div></div><span class="chip">Phase 1</span></summary>
+    <div class="stage-body">
+      <h4>읽을 파일 · 순서대로</h4>
+      <ul class="files">
+        <li><a href="../frontend/src/api.ts">frontend/src/api.ts</a><span>서버 호출이 모두 모인 곳. 응답 타입을 먼저 보면 화면 코드가 쉬워진다.</span></li>
+        <li><a href="../frontend/src/App.vue">frontend/src/App.vue</a><span><code>modes</code> 배열(상단 내비) → <code>setMode</code>(전환 전 저장 flush, 실패 시 중단) → <code>openPath</code>/<code>createPath</code>(Workspace) → <code>openNoteInNotes</code>. 각 View는 <code>v-show</code>/<code>v-if</code>로 붙는다.</span></li>
+        <li><a href="../frontend/src/NotesView.vue">frontend/src/NotesView.vue</a><span><code>scheduleSave</code>(800ms) → <code>flushSave</code>(저장 직렬화) → <code>selectNote</code>(전환 전 flush) → markdown-it wikilink 규칙(파일 앞부분) → <code>updateCompletion</code>/<code>pickCompletion</code>(<code>[[</code> 자동완성) → <code>refreshBacklinks</code>.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>저장 중에 다른 Note를 누르면 어떤 순서로 처리되나? 저장이 실패하면?</li>
+        <li><code>busy</code>/<code>locked</code> 잠금은 왜 필요한가? (A Note 내용이 B에 섞이는 것 방지)</li>
+        <li>미리보기에서 <code>html:false</code>와 frontmatter "속성" 분리는 어디서 하나?</li>
+      </ul>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="3">
+    <summary><span class="num">3</span><div><h3>색인과 검색 (RAG의 R)</h3><div class="sub">PDF → 조각 → 임베딩 → pgvector → hybrid + MMR</div></div><span class="chip">Phase 2</span></summary>
+    <div class="stage-body">
+      <div class="rail"><span>파일</span><i>→</i><span>parsers 페이지 텍스트</span><i>→</i><span>indexer 청크(800/150)</span><i>→</i><span>embeddings 384차원</span><i>→</i><span>chunks 테이블</span><i>→</i><span>retrieval 검색</span></div>
+      <h4>읽을 파일 · 순서대로</h4>
+      <ul class="files">
+        <li><a href="../backend/app/parsers.py">backend/app/parsers.py</a><span><code>DocumentParser</code> 인터페이스와 PDF/Markdown 파서, <code>parser_for</code>.</span></li>
+        <li><a href="../backend/app/db.py">backend/app/db.py</a><span><code>SCHEMA</code>(workspaces/documents/chunks), <code>connect</code>, <code>ensure_schema</code>, <code>available</code>.</span></li>
+        <li><a href="../backend/app/embeddings.py">backend/app/embeddings.py</a><span><code>embed_passages</code>/<code>embed_query</code>. 가짜 벡터 없음.</span></li>
+        <li><a href="../backend/app/indexer.py">backend/app/indexer.py</a><span><code>chunk_pages</code> → <code>derived_markdown</code>(.palette/derived) → <code>index_document</code>(sha256이 같으면 건너뜀) → <code>reindex</code>(<code>kinds</code>로 note/source 선택, 모델 변경 시 원자 교체) → <code>reconcile_deleted</code> → <code>source_statuses</code>.</span></li>
+        <li><a href="../backend/app/retrieval.py">backend/app/retrieval.py</a><span><code>search</code>: 단어 후보 + 벡터 후보(각 20) → 점수 0.5/0.5 → MMR(λ 0.7). <code>exclude_path</code>는 Related Notes용.</span></li>
+        <li><a href="../frontend/src/SourcesView.vue">SourcesView.vue</a> · <a href="../frontend/src/SearchView.vue">SearchView.vue</a><span>색인 상태(indexed/stale/error/not-indexed)와 Notes·Sources 분리 결과.</span></li>
+        <li><a href="../backend/tests/test_phase2.py">backend/tests/test_phase2.py</a><span>실제 PDF → 검색까지 한 번에, 원본 PDF 체크섬 불변.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>Note를 저장하면 색인은 언제 갱신되나? (저장 시 <code>stale</code> → 다음 재색인)</li>
+        <li>MMR이 "관련성"과 "이미 고른 것과의 유사도"를 어떻게 저울질하나?</li>
+        <li>임베딩 모델을 바꾸면 왜 일반 검색이 오류를 내나?</li>
+      </ul>
+      <div class="terms">
+        <span class="term"><b>chunk</b> · 검색 단위의 문단 조각</span>
+        <span class="term"><b>embedding</b> · 문장 의미를 숫자 배열로</span>
+        <span class="term"><b>hybrid</b> · 단어 검색 + 의미 검색</span>
+        <span class="term"><b>MMR</b> · 관련 있되 서로 다른 결과 고르기</span>
+        <span class="term"><b>stale</b> · 원본은 바뀌었는데 색인은 예전</span>
+      </div>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="4">
+    <summary><span class="num">4</span><div><h3>Chat과 LLM 연결</h3><div class="sub">근거를 찾아 붙이고, 답을 흘려보내고, 상태를 정직하게 저장</div></div><span class="chip">Phase 3</span></summary>
+    <div class="stage-body">
+      <div class="rail"><span>질문 저장</span><i>→</i><span>Notes 재색인·검색</span><i>→</i><span>context 이벤트</span><i>→</i><span>LLM 스트림</span><i>→</i><span>delta 반복</span><i>→</i><span>응답·인용 저장</span><i>→</i><span>done / error</span></div>
+      <h4>읽을 파일 · 순서대로</h4>
+      <ul class="files">
+        <li><a href="../backend/app/llm.py">backend/app/llm.py</a><span><code>LLMClient</code>(Protocol: <code>stream_chat</code>, <code>complete</code>) → <code>get_client(role)</code> → <code>OpenAICompatibleClient</code>. 정상 완료 판정과 예외 3종(<code>LLMNotConfigured</code>/<code>LLMStreamError</code>/<code>LLMInterrupted</code>), <code>reasoning_effort</code>.</span></li>
+        <li><a href="../backend/app/chat.py">backend/app/chat.py</a><span><code>assemble_context</code>([N1]/[S1] 라벨) → <code>build_messages</code>(현재 질문 1회만) → <code>generate</code>(threadpool, 취소 시 부분 응답 보존, 완료 시 <code>knowledge.schedule_update</code>).</span></li>
+        <li><a href="../backend/app/main.py">backend/app/main.py</a><span><code>/api/conversations*</code>, <code>_sse</code>, <code>StreamingResponse</code>.</span></li>
+        <li><a href="../frontend/src/ChatView.vue">frontend/src/ChatView.vue</a><span><code>sendMessage</code>(fetch 스트림 읽기) → <code>handleSseEvent</code> → <code>makeMd</code>(인용 링크) → <code>cancelActiveStream</code>/<code>selectConversation</code>.</span></li>
+        <li><a href="../backend/tests/test_phase3.py">backend/tests/test_phase3.py</a><span>외부 HTTP만 대체: 완료+인용 저장, 끊긴 스트림은 <code>interrupted</code>.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>"정상 완료"의 조건 세 가지는? 각각 빠지면 어떤 상태로 저장되나?</li>
+        <li>모델이 <code>[N9]</code>처럼 없는 라벨을 쓰면 어떻게 되나?</li>
+        <li>다른 LLM 서비스를 붙이려면 어디만 고치면 되나? (<code>llm.py</code>의 구현체 + <code>get_client</code>)</li>
+      </ul>
+      <div class="terms">
+        <span class="term"><b>SSE</b> · 한 응답 안에서 이벤트를 여러 번 보내기</span>
+        <span class="term"><b>context</b> · LLM에 함께 보내는 근거 조각</span>
+        <span class="term"><b>citation</b> · 답이 실제로 쓴 근거 표시</span>
+        <span class="term"><b>interrupted</b> · 중간에 끊긴 답</span>
+      </div>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="5">
+    <summary><span class="num">5</span><div><h3>Knowledge Update — 프로젝트의 핵심</h3><div class="sub">LLM은 계획만, 파일 수정은 앱 코드만</div></div><span class="chip">Phase 4</span></summary>
+    <div class="stage-body">
+      <div class="rail"><span>_claim · 처리할 턴</span><i>→</i><span>후보 추출(JSON)</span><i>→</i><span>_related · 관련 Note 5</span><i>→</i><span>결정(JSON)</span><i>→</i><span>_plan · 검증</span><i>→</i><span>_apply · 덧붙이기</span><i>→</i><span>기록 · 재색인</span></div>
+      <h4>읽을 파일 · 순서대로</h4>
+      <ul class="files">
+        <li><a href="../backend/app/knowledge.py">backend/app/knowledge.py</a><span><code>schedule_update</code>/<code>request_update</code>(언제 도는가) → <code>_claim</code>(watermark 이후 완료 턴, 고아 running 정리) → <code>_run</code>(전체 흐름) → <code>EXTRACT_PROMPT</code>/<code>DECIDE_PROMPT</code> → <code>_related</code> → <code>_plan</code>(target·링크 검증, <code>dropped_links</code>, 파일명, 덧붙이기 본문) → <code>_apply</code>(쓰기 직전 원본 확인, 실패 시 되돌림) → <code>list_updates</code>.</span></li>
+        <li><a href="../backend/app/db.py">backend/app/db.py</a><span><code>knowledge_updates</code>, <code>knowledge_changes</code>, <code>conversations.knowledge_watermark</code>.</span></li>
+        <li><a href="../frontend/src/ChatView.vue">ChatView.vue</a> · <a href="../frontend/src/NotesView.vue">NotesView.vue</a><span><code>requestKnowledge</code>/<code>pollKnowledge</code>(요약·지금 정리), <code>knowledgeChanged</code>(열린 Note 재로드 또는 경고).</span></li>
+        <li><a href="../backend/tests/test_phase4.py">backend/tests/test_phase4.py</a><span>§6 시나리오(CREATE + <code>[[제텔카스텐의 검색 문제]]</code>), UPDATE는 기존 바이트를 그대로 두고 끝에만 추가.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>LLM이 검색 결과에 없는 파일을 target으로 고르면? 링크 이름이 틀리면?</li>
+        <li>반영 도중 실패하면 디스크와 DB는 어떤 상태가 되나?</li>
+        <li>자동 실행은 언제 일어나나? (사용자 턴 3개, 대화 전환, 지금 정리)</li>
+      </ul>
+      <div class="terms">
+        <span class="term"><b>Knowledge Delta</b> · 대화로 생긴 지식의 변화</span>
+        <span class="term"><b>Candidate</b> · 저장 후보</span>
+        <span class="term"><b>watermark</b> · 어디까지 처리했나</span>
+        <span class="term"><b>CREATE/UPDATE/LINK/NONE</b> · 결정 4종</span>
+      </div>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="6">
+    <summary><span class="num">6</span><div><h3>History · Diff · Undo</h3><div class="sub">자동화를 안심하고 쓰게 하는 안전망</div></div><span class="chip">Phase 5</span></summary>
+    <div class="stage-body">
+      <div class="rail"><span>모든 대상 sha256 확인</span><i>→</i><span>하나라도 다르면 409, 아무것도 안 바꿈</span><i>→</i><span>역순 복원(CREATE는 삭제)</span><i>→</i><span>undone 기록</span><i>→</i><span>재색인</span></div>
+      <h4>읽을 파일 · 순서대로</h4>
+      <ul class="files">
+        <li><a href="../backend/app/knowledge.py">backend/app/knowledge.py</a><span>뒷부분: <code>history_updates</code> → <code>update_detail</code> → <code>undo_update</code>(<code>FOR UPDATE</code> 잠금, 충돌 수집, 실패 시 after로 복구).</span></li>
+        <li><a href="../frontend/src/HistoryView.vue">frontend/src/HistoryView.vue</a><span>목록 → <code>select</code>(상세) → jsdiff 줄 단위 Diff와 접기.</span></li>
+        <li><a href="../frontend/src/App.vue">frontend/src/App.vue</a><span><code>undoUpdate</code>: 확인 → <code>pauseForUndo</code> → API → 열린 Note 갱신 → History/Chat 갱신, 409 충돌 안내.</span></li>
+        <li><a href="../backend/tests/test_phase5.py">backend/tests/test_phase5.py</a><span>CREATE+LINK 전체 복원(바이트 동일), 이후 편집 시 409와 무변경.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>왜 일부 파일만 되돌리는 "부분 Undo"를 하지 않나?</li>
+        <li>같은 Note를 두 번의 업데이트가 바꿨다면 어떤 순서로만 Undo가 되나?</li>
+        <li>Undo 중 예약 저장을 멈추지 않으면 무슨 일이 생기나?</li>
+      </ul>
+      <div class="terms">
+        <span class="term"><b>sha256</b> · 내용이 한 글자만 달라도 바뀌는 지문</span>
+        <span class="term"><b>409</b> · 충돌로 거부</span>
+        <span class="term"><b>Diff</b> · 줄 단위 전후 비교</span>
+      </div>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="7">
+    <summary><span class="num">7</span><div><h3>Knowledge Navigation</h3><div class="sub">Local Graph · Related Notes · Base Lite</div></div><span class="chip">Phase 6</span></summary>
+    <div class="stage-body">
+      <p>세 기능은 서로 독립이며, 모두 앞 단계의 부품(Workspace 링크 해석, retrieval, 파일 읽기)을 재사용한다. 원본을 고치지 않는다.</p>
+      <h4>읽을 파일</h4>
+      <ul class="files">
+        <li><a href="../backend/app/graph.py">graph.py</a> → <a href="../frontend/src/GraphView.vue">GraphView.vue</a><span><code>local_graph</code>: 나가는 링크 + backlink를 1-hop 노드·간선으로. 화면은 라이브러리 없는 SVG 방사형 배치.</span></li>
+        <li><a href="../backend/app/related.py">related.py</a> → <a href="../frontend/src/RelatedNotes.vue">RelatedNotes.vue</a><span><code>find_related</code>: 본문 앞 1,200자로 검색, 자기 자신 제외, 직접 링크 표시. 패널을 열 때만 실행.</span></li>
+        <li><a href="../backend/app/base.py">base.py</a> → <a href="../frontend/src/BaseView.vue">BaseView.vue</a><span><code>frontmatter_notes</code>: PyYAML safe_load, Note별 오류. 필터·정렬·그룹·표/목록은 브라우저에서.</span></li>
+        <li><a href="../backend/tests/test_phase6_graph.py">test_phase6_graph</a> · <a href="../backend/tests/test_phase6_related.py">_related</a> · <a href="../backend/tests/test_phase6_base.py">_base</a><span>각 기능의 성공 경로 1개.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>그래프에서 missing·ambiguous 링크는 왜 노드가 아니라 목록인가?</li>
+        <li>Related Notes가 DB 없이 열리면 무엇이 보이나? (가짜 결과 대신 "의미 검색 비활성")</li>
+      </ul>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+
+  <details class="stage" data-stage="8">
+    <summary><span class="num">8</span><div><h3>디자인 시스템</h3><div class="sub">Hallmark Tally(Pastel) 토큰과 공통 클래스</div></div><span class="chip">UI</span></summary>
+    <div class="stage-body">
+      <ul class="files">
+        <li><a href="../frontend/src/styles/tokens.css">frontend/src/styles/tokens.css</a><span>맨 위 Hallmark 스탬프(출처), 색·폰트·간격·반경 토큰. 이 가이드도 같은 토큰을 쓴다.</span></li>
+        <li><a href="../frontend/src/styles/base.css">frontend/src/styles/base.css</a><span><code>.btn</code>, <code>.card</code>, <code>.status-chip</code>, <code>.banner</code>, <code>.eyebrow</code> 등 공통 클래스.</span></li>
+      </ul>
+      <h4>확인할 것</h4>
+      <ul class="checks">
+        <li>화면 파일에 색 값이 직접 적혀 있지 않고 <code>var(--color-…)</code>만 쓰는가?</li>
+        <li>상태는 색만이 아니라 글자(저장됨, interrupted 등)로도 구분되는가?</li>
+      </ul>
+      <label class="done-toggle"><input type="checkbox"> 이 단계를 다 읽었다</label>
+    </div>
+  </details>
+</section>
+
+<section class="block" id="api">
+  <div class="eyebrow">05 · 참고표</div>
+  <h2>HTTP API (backend/app/main.py)</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Method</th><th>Path</th><th>하는 일</th><th>Phase</th></tr></thead>
+    <tbody>
+      <tr><td><span class="method">GET</span></td><td><code>/api/workspace</code></td><td>현재 열린 Workspace</td><td>1</td></tr>
+      <tr><td><span class="method post">POST</span></td><td><code>/api/workspace/open</code> · <code>/create</code></td><td>기존 폴더 열기 / 새로 만들기</td><td>1</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/notes</code> · <code>/api/notes/names</code></td><td>Note 목록 / 자동완성용 이름</td><td>1</td></tr>
+      <tr><td><span class="method">GET</span> <span class="method put">PUT</span></td><td><code>/api/notes/content</code></td><td>Note 읽기 / 저장(색인은 stale 표시)</td><td>1</td></tr>
+      <tr><td><span class="method post">POST</span></td><td><code>/api/notes</code></td><td>Note 만들기</td><td>1</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/search</code> · <code>/api/notes/backlinks</code> · <code>/api/links/resolve</code></td><td>단순 검색 / backlink / 링크 해석</td><td>1</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/sources</code></td><td>Source 파일과 색인 상태</td><td>2</td></tr>
+      <tr><td><span class="method post">POST</span></td><td><code>/api/sources/rescan</code> · <code>/reindex</code></td><td>변경분 색인 / 전체 재구축</td><td>2</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/search/notes</code> · <code>/api/search/sources</code></td><td>hybrid + MMR 검색</td><td>2</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/chat/status</code></td><td>Provider 설정 여부(키는 노출 안 함)</td><td>3</td></tr>
+      <tr><td><span class="method">GET</span> <span class="method post">POST</span></td><td><code>/api/conversations</code> · <code>/{id}</code></td><td>대화 목록·생성·조회</td><td>3</td></tr>
+      <tr><td><span class="method post">POST</span></td><td><code>/api/conversations/{id}/messages</code></td><td>질문 → SSE 스트림 응답</td><td>3</td></tr>
+      <tr><td><span class="method post">POST</span></td><td><code>/api/conversations/{id}/knowledge-update</code></td><td>지금 정리(수동/전환 시)</td><td>4</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/conversations/{id}/knowledge-updates</code></td><td>대화별 정리 결과(Chat 요약)</td><td>4</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/knowledge-updates</code> · <code>/{id}</code></td><td>History 목록 / 변경 전후·결정</td><td>5</td></tr>
+      <tr><td><span class="method post">POST</span></td><td><code>/api/knowledge-updates/{id}/undo</code></td><td>Undo (409 충돌, 400 상태 오류)</td><td>5</td></tr>
+      <tr><td><span class="method">GET</span></td><td><code>/api/notes/graph</code> · <code>/related</code> · <code>/frontmatter</code></td><td>Local Graph / Related Notes / Base Lite</td><td>6</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="block" id="db">
+  <h2>DB 테이블 (backend/app/db.py)</h2>
+  <p>모든 행은 <code>workspace</code>(루트 절대 경로)로 구분된다. Markdown이 원본이므로 아래 표는 전부 다시 만들거나(색인) 운영 기록(대화·History)이다.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>테이블</th><th>담는 것</th><th>Phase</th></tr></thead>
+    <tbody>
+      <tr><td><code>workspaces</code></td><td>Workspace별 임베딩 모델 이름과 차원(모델이 섞이지 않게)</td><td>2</td></tr>
+      <tr><td><code>documents</code></td><td>색인된 Note/Source 파일, sha256 지문, 상태(indexed/stale/error)</td><td>2</td></tr>
+      <tr><td><code>chunks</code></td><td>문단 조각, 페이지, <code>VECTOR(384)</code> 임베딩</td><td>2</td></tr>
+      <tr><td><code>conversations</code></td><td>대화, 제목, <code>knowledge_watermark</code></td><td>3 · 4</td></tr>
+      <tr><td><code>messages</code></td><td>질문/응답, 상태(complete/interrupted/error), 인용, context</td><td>3</td></tr>
+      <tr><td><code>knowledge_updates</code></td><td>정리 실행 1회: 상태(running/applied/failed/undone), 처리 범위, 카운트, 결정, 오류, undone_at</td><td>4 · 5</td></tr>
+      <tr><td><code>knowledge_changes</code></td><td>파일별 변경: op, path, before, after, after_sha256</td><td>4 · 5</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="block" id="tests">
+  <h2>테스트 (backend/tests, 13개)</h2>
+  <p>TESTING.md 원칙: 기능마다 성공 경로 1개 + 명시된 실패/금지 1개씩. 외부 LLM HTTP만 대체하고 DB·검색·파일은 실제로 쓴다. DB 테스트는 컨테이너가 없으면 건너뛴다.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>파일</th><th>무엇을 증명하나</th></tr></thead>
+    <tbody>
+      <tr><td><code>test_phase1.py</code></td><td>위키 성공 경로 · 파일명 기준 링크 · notes/ 밖 접근과 심볼릭 링크 탈출 거부</td></tr>
+      <tr><td><code>test_phase2.py</code></td><td>PDF → 파싱 → 임베딩 → pgvector → hybrid+MMR, 원본 PDF 불변</td></tr>
+      <tr><td><code>test_phase3.py</code></td><td>스트림 완료 + 실제 인용만 저장 · 끊긴 스트림은 interrupted</td></tr>
+      <tr><td><code>test_phase4.py</code></td><td>§6 시나리오 CREATE + 링크 · UPDATE는 기존 바이트를 그대로 둔 덧붙이기</td></tr>
+      <tr><td><code>test_phase5.py</code></td><td>Undo로 바이트 단위 복원 · 이후 편집 시 409와 무변경</td></tr>
+      <tr><td><code>test_phase6_*.py</code></td><td>Graph 1-hop · Related(자기 제외) · Base(필드와 YAML 오류)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="block" id="terms">
+  <h2>용어집</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>용어</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td>Workspace</td><td>앱이 읽고 쓰는 로컬 폴더. <code>notes/</code>(내 지식)와 <code>sources/</code>(원본 자료)를 가진다.</td></tr>
+      <tr><td>Note / Source</td><td>Note는 내가 이해하고 생각한 것, Source는 근거가 되는 외부 원본(PDF 등). Source는 앱이 고치지 않는다.</td></tr>
+      <tr><td>파생 데이터</td><td>원본에서 언제든 다시 만들 수 있는 것(색인, 임베딩, <code>.palette/derived</code>).</td></tr>
+      <tr><td>flush</td><td>예약된 자동 저장을 지금 바로 실행하고 끝날 때까지 기다리기.</td></tr>
+      <tr><td>RAG</td><td>검색으로 찾은 근거를 LLM에 함께 보내 답하게 하는 방식.</td></tr>
+      <tr><td>Provider · LLMClient</td><td>실제 LLM 서비스와 그 호출 규약(인터페이스). 구현체를 바꿔 끼울 수 있다.</td></tr>
+      <tr><td>reasoning_effort</td><td>모델의 생각(thinking) 정도. <code>none</code>이면 생각 없이 바로 답한다(속도).</td></tr>
+      <tr><td>고아 running</td><td>"실행 중" 표시만 남고 실제로는 돌지 않는 기록(재시작 등). 다음 요청 때 failed로 정리된다.</td></tr>
+      <tr><td>dropped_links</td><td>모델이 낸 링크 중 실제 Note로 해석되지 않아 버린 것.</td></tr>
+      <tr><td>1-hop</td><td>현재 Note와 직접 연결된 Note까지만.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  관련 문서: <a href="../README.md">README</a> · <a href="knowledge-palette-architecture.md">architecture</a> · <a href="implementation-decisions.md">implementation-decisions</a> · <a href="../작업 내역.md">작업 내역(명시되지 않은 선택)</a>.
+  코드 지도는 graphify(<code>graphify update</code>, LLM 없이 AST 추출) 결과를 파일 단위로 요약했다.
+</footer>
+</div>
+
+<script>
+// 체크 상태는 이 브라우저에만 저장되는 개인용 진행 표시다. 저장소가 막혀도 페이지는 그대로 동작한다.
+(function () {
+  const KEY = "kp-review-guide-done";
+  let done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { done = {}; }
+  const stages = Array.from(document.querySelectorAll(".stage"));
+  function render() {
+    let n = 0;
+    stages.forEach(s => {
+      const on = !!done[s.dataset.stage];
+      s.classList.toggle("done", on);
+      const box = s.querySelector(".done-toggle input");
+      if (box) box.checked = on;
+      if (on) n++;
+    });
+    document.getElementById("bar").style.width = (n / stages.length * 100) + "%";
+    document.getElementById("progress-text").textContent = n + " / " + stages.length + " 단계";
+  }
+  stages.forEach(s => {
+    const box = s.querySelector(".done-toggle input");
+    if (!box) return;
+    box.addEventListener("change", () => {
+      done[s.dataset.stage] = box.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {}
+      render();
+    });
+  });
+  render();
+})();
+</script>
+</body>
+</html>

@@ -3,6 +3,8 @@
 로컬 Markdown Knowledge Base(Local Wiki)를 위한 로컬 우선 PKM 앱.
 Phase 1은 AI 없이 Markdown PKM 기본 기능을 제공한다.
 
+전체 코드 검토 가이드: [`docs/review-guide.html`](docs/review-guide.html) · 구현 중 고른 명시되지 않은 선택: [`작업 내역.md`](작업%20내역.md)
+
 ## 요구 사항
 
 - Python 3.11+ 및 [uv](https://docs.astral.sh/uv/)
