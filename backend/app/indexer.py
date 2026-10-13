@@ -132,8 +132,12 @@ def _vec_lit(v: list[float]) -> str:
     return "[" + ",".join(repr(float(x)) for x in v) + "]"
 
 
-def reconcile_deleted(conn, ws: Workspace, live_paths: set[str]) -> list[str]:
-    rows = conn.execute("SELECT path FROM documents WHERE workspace=%s", (str(ws.root),)).fetchall()
+def reconcile_deleted(conn, ws: Workspace, live_paths: set[str], kinds: tuple[str, ...]) -> list[str]:
+    # 제한된 스캔에서 보지 않은 종류는 삭제 여부를 판단할 근거가 없다.
+    rows = conn.execute(
+        "SELECT path FROM documents WHERE workspace=%s AND kind=ANY(%s)",
+        (str(ws.root), list(kinds)),
+    ).fetchall()
     deleted = []
     for (path,) in rows:
         if path not in live_paths:
@@ -143,21 +147,26 @@ def reconcile_deleted(conn, ws: Workspace, live_paths: set[str]) -> list[str]:
     return deleted
 
 
-def reindex(ws: Workspace, full: bool = False) -> dict:
+def reindex(ws: Workspace, full: bool = False, kinds: tuple[str, ...] = ("note", "source")) -> dict:
+    if not kinds or not set(kinds) <= {"note", "source"}:
+        raise ValueError("색인 대상은 note 또는 source여야 합니다")
     db.ensure_schema()
     results = {"indexed": [], "unchanged": [], "errors": [], "deleted": []}
     live: set[str] = set()
     notes_dir = ws.root / "notes"
     docs: list[tuple[Path, str, str]] = []
-    for p in ws.note_files():
-        docs.append((p, str(p.relative_to(notes_dir)), "note"))
-    for p in source_files(ws):
-        docs.append((p, str(p.relative_to(ws.root / "sources")), "source"))
+    if "note" in kinds:
+        for p in ws.note_files():
+            docs.append((p, str(p.relative_to(notes_dir)), "note"))
+    if "source" in kinds:
+        for p in source_files(ws):
+            docs.append((p, str(p.relative_to(ws.root / "sources")), "source"))
     ws_key = str(ws.root)
     with db.connect() as conn:
         stored_model, stored_dim, _ = index_status(conn, ws_key)
         model_mismatch = stored_model is not None and (stored_model != db.EMBEDDING_MODEL or stored_dim != db.EMBEDDING_DIM)
-        if model_mismatch and not full:
+        # 모델 metadata는 Workspace 전체에 적용되므로 종류 일부만 새 모델로 바꿀 수 없다.
+        if model_mismatch and (not full or set(kinds) != {"note", "source"}):
             raise RuntimeError(
                 f"인덱스가 {stored_model}(dim {stored_dim})로 만들어졌습니다. 현재 모델과 다르므로 전체 재구축(full rebuild)이 필요합니다."
             )
@@ -168,15 +177,16 @@ def reindex(ws: Workspace, full: bool = False) -> dict:
                 with conn.transaction():
                     conn.execute("DELETE FROM chunks WHERE workspace=%s", (ws_key,))
                     conn.execute("DELETE FROM documents WHERE workspace=%s", (ws_key,))
-                    conn.execute("DELETE FROM workspaces WHERE path=%s", (ws_key,))
+                    # 운영 식별자인 workspaces 행은 지우지 않는다. Conversation/History 데이터가
+                    # 이 워크스페이스를 참조할 수 있으므로 model/dim만 원자적으로 교체한다.
                     conn.execute(
-                        "INSERT INTO workspaces(path, embedding_model, dim) VALUES (%s,%s,%s)",
-                        (ws_key, db.EMBEDDING_MODEL, db.EMBEDDING_DIM),
+                        "UPDATE workspaces SET embedding_model=%s, dim=%s, updated_at=now() WHERE path=%s",
+                        (db.EMBEDDING_MODEL, db.EMBEDDING_DIM, ws_key),
                     )
                     for path, rel, kind in docs:
                         db_rel = f"notes/{rel}" if kind == "note" else f"sources/{rel}"
                         index_document(conn, ws, path, db_rel, kind, force=True)
-                    reconcile_deleted(conn, ws, {f"notes/{r}" if k == "note" else f"sources/{r}" for _, r, k in docs})
+                    reconcile_deleted(conn, ws, {f"notes/{r}" if k == "note" else f"sources/{r}" for _, r, k in docs}, kinds)
                 conn.commit()
                 return {"indexed": [r for _, r, _ in docs], "unchanged": [], "errors": [], "deleted": [], "rebuilt": True}
             except Exception as e:
@@ -209,7 +219,7 @@ def reindex(ws: Workspace, full: bool = False) -> dict:
                 results["errors"].append({"path": rel, "error": str(e)[:200]})
         try:
             with conn.transaction():
-                results["deleted"] = reconcile_deleted(conn, ws, live)
+                results["deleted"] = reconcile_deleted(conn, ws, live, kinds)
             conn.commit()
         except Exception:
             conn.rollback()
